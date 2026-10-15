@@ -7,6 +7,8 @@ import pytest
 
 from tennis_predictor.config import Settings, load_settings
 from tennis_predictor.data.loader import load_matches
+from tennis_predictor.features.dataset import Dataset, build_dataset
+from tennis_predictor.features.tracker import FeatureTracker
 from tests.synthetic import write_settings, write_synthetic_tour
 
 
@@ -30,3 +32,13 @@ def settings(config_path: Path) -> Settings:
 @pytest.fixture(scope="session")
 def matches(settings: Settings) -> pd.DataFrame:
     return load_matches(settings.data, settings.tour, use_cache=False)
+
+
+@pytest.fixture(scope="session")
+def built(matches: pd.DataFrame, settings: Settings) -> tuple[Dataset, FeatureTracker]:
+    return build_dataset(matches, settings)
+
+
+@pytest.fixture(scope="session")
+def dataset(built: tuple[Dataset, FeatureTracker]) -> Dataset:
+    return built[0]

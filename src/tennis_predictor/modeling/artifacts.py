@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import os
 import platform
+import shutil
 from dataclasses import dataclass
 from importlib.metadata import version
 from pathlib import Path
@@ -15,6 +17,7 @@ from xgboost import XGBClassifier
 
 from tennis_predictor import __version__
 from tennis_predictor.config import Tour
+from tennis_predictor.features.specs import FEATURE_NAMES
 from tennis_predictor.features.tracker import FeatureTracker
 from tennis_predictor.modeling.calibration import TemperatureScaler
 
@@ -22,15 +25,19 @@ MODEL_FILE = "model.ubj"
 METADATA_FILE = "metadata.json"
 PREDICTIONS_FILE = "predictions.parquet"
 STATE_DIR = "state"
+#: Bump when the meaning of a feature changes, so stale models are refused at load time.
+SCHEMA_VERSION = 1
 
 
 class ArtifactMetadata(BaseModel):
     """Provenance and evaluation context written next to the model."""
 
     package_version: str = __version__
+    schema_version: int = SCHEMA_VERSION
     created_at: dt.datetime
     tour: Tour
     data_cutoff: dt.date
+    rankings_date: dt.date | None = None
     feature_names: list[str]
     settings: dict[str, Any]
     calibration_slope: float
@@ -71,12 +78,24 @@ def save_artifacts(
     metadata: ArtifactMetadata,
     predictions: pd.DataFrame,
 ) -> None:
-    """Write the model, the tracker state, the metadata and the held-out predictions."""
-    directory.mkdir(parents=True, exist_ok=True)
-    model.save_model(directory / MODEL_FILE)
-    tracker.save(directory / STATE_DIR)
-    predictions.to_parquet(directory / PREDICTIONS_FILE, index=False)
-    (directory / METADATA_FILE).write_text(metadata.model_dump_json(indent=2), encoding="utf-8")
+    """Write the model, the tracker state, the metadata and the held-out predictions.
+
+    Everything is written to a temporary sibling directory that replaces ``directory`` only
+    once complete, so an interrupted run never mixes files from two trainings.
+    """
+    directory.parent.mkdir(parents=True, exist_ok=True)
+    staging = directory.with_name(f".{directory.name}.tmp-{os.getpid()}")
+    shutil.rmtree(staging, ignore_errors=True)
+    staging.mkdir()
+    model.save_model(staging / MODEL_FILE)
+    tracker.save(staging / STATE_DIR)
+    predictions.to_parquet(staging / PREDICTIONS_FILE, index=False)
+    (staging / METADATA_FILE).write_text(metadata.model_dump_json(indent=2), encoding="utf-8")
+    previous = directory.with_name(f".{directory.name}.old-{os.getpid()}")
+    if directory.exists():
+        directory.rename(previous)
+    staging.rename(directory)
+    shutil.rmtree(previous, ignore_errors=True)
 
 
 def load_metadata(directory: Path) -> ArtifactMetadata:
@@ -88,8 +107,27 @@ def load_metadata(directory: Path) -> ArtifactMetadata:
 
 
 def load_artifacts(directory: Path) -> LoadedArtifacts:
-    """Restore a model saved by :func:`save_artifacts`."""
+    """Restore a model saved by :func:`save_artifacts`.
+
+    Raises:
+        FileNotFoundError: A required file is missing.
+        ValueError: The model was trained with an incompatible feature schema.
+    """
     metadata = load_metadata(directory)
+    if metadata.schema_version != SCHEMA_VERSION or metadata.feature_names != list(FEATURE_NAMES):
+        raise ValueError(
+            f"the model in {directory} was trained with an incompatible feature schema; "
+            "run `tennis train` again"
+        )
+    state = directory / STATE_DIR
+    for path in (
+        directory / MODEL_FILE,
+        state / "tracker.json",
+        state / "players.parquet",
+        state / "h2h.parquet",
+    ):
+        if not path.is_file():
+            raise FileNotFoundError(f"{path} is missing; run `tennis train` again")
     model = XGBClassifier()
     model.load_model(directory / MODEL_FILE)
     return LoadedArtifacts(

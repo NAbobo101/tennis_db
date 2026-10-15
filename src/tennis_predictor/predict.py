@@ -13,30 +13,49 @@ import pandas as pd
 import xgboost as xgb
 from scipy.special import expit
 
-from tennis_predictor.data.schema import ROUND_ORDER, date_to_day, day_to_date
+from tennis_predictor.data.schema import LEVEL_ORDINAL, ROUND_ORDER, date_to_day, day_to_date
 from tennis_predictor.features.specs import FEATURE_NAMES, swap_players
 from tennis_predictor.features.tracker import MatchContext
 from tennis_predictor.modeling.artifacts import LoadedArtifacts, load_artifacts
 from tennis_predictor.modeling.train import positive_proba, symmetric_proba
-from tennis_predictor.players import PlayerSummary, player_summaries, resolve_player
+from tennis_predictor.players import (
+    ACTIVE_DAYS,
+    PlayerSummary,
+    player_summaries,
+    resolve_player,
+)
 
 
 class Event(StrEnum):
-    """Kind of tournament, mapped to the level ordinal used by the model."""
+    """Kind of tournament."""
 
     GRAND_SLAM = "grand-slam"
     FINALS = "finals"
     MASTERS = "masters"
     OLYMPICS = "olympics"
+    TOUR_500 = "tour-500"
     TOUR = "tour"
 
 
-EVENT_LEVEL_ORDINAL = {
-    Event.GRAND_SLAM: 4,
-    Event.FINALS: 3,
-    Event.MASTERS: 2,
-    Event.OLYMPICS: 2,
-    Event.TOUR: 1,
+#: Upstream level code that each event corresponds to, per tour. ATP 250 and 500 events
+#: share the ``A`` code; for the WTA, ``tour`` is a 250 (``I``) and ``tour-500`` is ``P``.
+EVENT_LEVEL_CODES: dict[str, dict[Event, str]] = {
+    "atp": {
+        Event.GRAND_SLAM: "G",
+        Event.FINALS: "F",
+        Event.MASTERS: "M",
+        Event.OLYMPICS: "O",
+        Event.TOUR_500: "A",
+        Event.TOUR: "A",
+    },
+    "wta": {
+        Event.GRAND_SLAM: "G",
+        Event.FINALS: "F",
+        Event.MASTERS: "PM",
+        Event.OLYMPICS: "O",
+        Event.TOUR_500: "P",
+        Event.TOUR: "I",
+    },
 }
 
 
@@ -65,6 +84,7 @@ class Prediction:
     surface: str
     best_of: int
     top_factors: list[tuple[str, float]]
+    warnings: list[str]
 
     @property
     def favourite(self) -> PlayerSummary:
@@ -121,7 +141,9 @@ class Predictor:
             tourney_id="__prediction__",
             surface=surface,
             best_of=best_of,
-            level_ordinal=EVENT_LEVEL_ORDINAL[request.event],
+            level_ordinal=LEVEL_ORDINAL[tracker.tour][
+                EVENT_LEVEL_CODES[tracker.tour][request.event]
+            ],
             round_order=ROUND_ORDER[round_code],
             is_slam=is_slam,
         )
@@ -133,11 +155,19 @@ class Predictor:
         return pd.DataFrame([row], columns=list(FEATURE_NAMES), dtype="float64"), context, as_of
 
     def _top_factors(self, X: pd.DataFrame, count: int = 5) -> list[tuple[str, float]]:
-        """Per-feature contributions (log-odds, SHAP) to A's chances, averaged over both orders."""
-        booster = self.artifacts.model.get_booster()
-        direct = booster.predict(xgb.DMatrix(X), pred_contribs=True)[0, :-1]
-        swapped = booster.predict(xgb.DMatrix(swap_players(X)), pred_contribs=True)[0, :-1]
-        contributions = 0.5 * (direct - swapped)
+        """Largest per-feature contributions (TreeSHAP) to A's calibrated log-odds.
+
+        Contributions are computed over the trees kept by early stopping, averaged over
+        both player orders and multiplied by the calibration slope.
+        """
+        model = self.artifacts.model
+        booster = model.get_booster()
+        trees = (0, model.best_iteration + 1)
+        direct = booster.predict(xgb.DMatrix(X), pred_contribs=True, iteration_range=trees)
+        swapped = booster.predict(
+            xgb.DMatrix(swap_players(X)), pred_contribs=True, iteration_range=trees
+        )
+        contributions = 0.5 * (direct[0, :-1] - swapped[0, :-1]) * self.artifacts.calibrator.slope
         order = np.argsort(-np.abs(contributions))[:count]
         return [(FEATURE_NAMES[index], float(contributions[index])) for index in order]
 
@@ -150,6 +180,11 @@ class Predictor:
         X, context, as_of = self._features(request, a, b)
         raw = symmetric_proba(positive_proba(self.artifacts.model), X)
         probability = float(self.artifacts.calibrator.transform(raw)[0])
+        warnings = [
+            f"{player.name} has not played since {player.last_played} (form and ratings are stale)"
+            for player in (a, b)
+            if player.last_played is None or (as_of - player.last_played).days > ACTIVE_DAYS
+        ]
         return Prediction(
             a=a,
             b=b,
@@ -159,4 +194,5 @@ class Predictor:
             surface=context.surface,
             best_of=context.best_of,
             top_factors=self._top_factors(X),
+            warnings=warnings,
         )

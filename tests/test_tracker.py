@@ -5,11 +5,13 @@ import math
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from tennis_predictor.config import EloConfig, FeatureConfig
 from tennis_predictor.data.schema import Outcome
 from tennis_predictor.features.dataset import Dataset
+from tennis_predictor.features.elo import k_factor, match_win_probability
 from tennis_predictor.features.specs import FEATURE_NAMES, FEATURES, Symmetry, swap_players
 from tennis_predictor.features.tracker import FeatureTracker, MatchContext, MatchResult, PlayerInfo
 
@@ -105,7 +107,10 @@ def test_walkovers_only_refresh_facts(tracker: FeatureTracker) -> None:
 def test_retirement_counts_with_reduced_k_and_no_stats(tracker: FeatureTracker) -> None:
     full = FeatureTracker(EloConfig(), FeatureConfig(), "atp")
     full.update(info(1), info(2), ctx(1000), completed())
-    tracker.update(info(1), info(2), ctx(1000), MatchResult(Outcome.RETIRED, None, None, 8, 5))
+    # Partial statistics of a retirement must be ignored even when they are provided.
+    tracker.update(
+        info(1), info(2), ctx(1000), MatchResult(Outcome.RETIRED, STATS_W, STATS_L, 8, 5)
+    )
     assert tracker.players[1].elo.value - 1500 == pytest.approx(
         (full.players[1].elo.value - 1500) / 2
     )
@@ -114,6 +119,32 @@ def test_retirement_counts_with_reduced_k_and_no_stats(tracker: FeatureTracker) 
     assert tracker.global_count == 0
     row = tracker.snapshot(info(1), info(2), ctx(1007))
     assert feature(row, "after_retirement_diff") == -1.0
+
+
+def test_grand_slam_best_of_five_update() -> None:
+    """Slam matches use K * 1.1 and the best-of-five expected score."""
+    cfg = EloConfig()
+    trackers = [FeatureTracker(cfg, FeatureConfig(), "atp") for _ in range(2)]
+    for tracker in trackers:
+        for day in (900, 910, 920):
+            tracker.update(info(1), info(2), ctx(day), completed())
+    before = trackers[0].players[1].elo.value - trackers[0].players[2].elo.value
+    n1 = trackers[0].players[1].elo.matches
+    trackers[0].update(info(1), info(2), ctx(1000, best_of=5), completed())
+    trackers[1].update(info(1), info(2), ctx(1000, best_of=3), completed())
+    slam_gain = trackers[0].players[1].elo.value - trackers[1].players[1].elo.value
+    expected_slam = k_factor(n1, cfg) * 1.1 * (1 - match_win_probability(before, 5))
+    expected_bo3 = k_factor(n1, cfg) * (1 - match_win_probability(before, 3))
+    assert slam_gain == pytest.approx(expected_slam - expected_bo3)
+    assert match_win_probability(before, 5) > match_win_probability(before, 3)
+
+
+def test_apply_rankings(tracker: FeatureTracker) -> None:
+    tracker.update(info(1, rank=50.0), info(2, rank=60.0), ctx(1000), completed())
+    tracker.apply_rankings({1: (3.0, 4000.0)})
+    assert tracker.player_info(1, as_of_day=1001).rank == 3.0
+    assert tracker.player_info(1, as_of_day=1001).rank_points == 4000.0
+    assert math.isnan(tracker.player_info(2, as_of_day=1001).rank)  # dropped off the list
 
 
 def test_activity_features(tracker: FeatureTracker) -> None:
@@ -189,6 +220,12 @@ def test_save_and_load_round_trip(built: tuple[Dataset, FeatureTracker], tmp_pat
     restored = FeatureTracker.load(tmp_path)
     assert restored.last_day == tracker.last_day
     assert restored.h2h == tracker.h2h
+    assert (restored.global_num, restored.global_den, restored.global_count) == (
+        tracker.global_num,
+        tracker.global_den,
+        tracker.global_count,
+    )
+    pd.testing.assert_frame_equal(restored.players_frame(), tracker.players_frame())
     ids = sorted(tracker.players)[:6]
     context = ctx(tracker.last_day + 3, tourney="x")
     for a, b in itertools.pairwise(ids):

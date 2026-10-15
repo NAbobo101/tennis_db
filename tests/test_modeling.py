@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import shutil
 from pathlib import Path
 
 import numpy as np
@@ -7,11 +9,13 @@ import pandas as pd
 import pytest
 from sklearn.metrics import log_loss
 
-from tennis_predictor.config import Settings
+from tennis_predictor.config import Settings, XGBoostConfig
 from tennis_predictor.features.dataset import Dataset
 from tennis_predictor.features.specs import swap_players
 from tennis_predictor.features.tracker import FeatureTracker
 from tennis_predictor.modeling.artifacts import (
+    METADATA_FILE,
+    MODEL_FILE,
     ArtifactMetadata,
     load_artifacts,
     load_metadata,
@@ -20,6 +24,7 @@ from tennis_predictor.modeling.artifacts import (
 from tennis_predictor.modeling.baselines import EloBaseline, RankBaseline
 from tennis_predictor.modeling.calibration import TemperatureScaler
 from tennis_predictor.modeling.train import (
+    fit_xgboost,
     make_logistic,
     positive_proba,
     symmetric_proba,
@@ -120,3 +125,52 @@ def test_missing_artifacts_raise(tmp_path: Path) -> None:
         load_metadata(tmp_path)
     with pytest.raises(FileNotFoundError, match="tennis train"):
         load_predictions(tmp_path)
+
+
+def test_grid_selects_the_best_validation_candidate(dataset: Dataset) -> None:
+    train, val = dataset.subset("train"), dataset.subset("val")
+    cfg = XGBoostConfig(
+        n_estimators=60,
+        early_stopping_rounds=10,
+        n_jobs=1,
+        grid=({"max_depth": 2}, {"max_depth": 6}),
+    )
+    model, best, search = fit_xgboost(train, val, cfg, seed=0)
+    assert len(search) == 2
+    assert best.val_log_loss == min(result.val_log_loss for result in search)
+    assert model.best_iteration == best.best_iteration
+    served = log_loss(val.y, symmetric_proba(positive_proba(model), val.X))
+    assert served == pytest.approx(best.val_log_loss)
+
+
+def test_metadata_matches_the_selected_model(trained_settings: Settings) -> None:
+    metadata = load_metadata(trained_settings.model_dir)
+    artifacts = load_artifacts(trained_settings.model_dir)
+    assert artifacts.model.best_iteration == metadata.best_iteration
+    assert metadata.rankings_date is not None  # the synthetic ranking list was used
+
+
+def _copy_model(source: Path, target: Path) -> Path:
+    shutil.copytree(source, target)
+    return target
+
+
+def test_incompatible_or_incomplete_artifacts_are_refused(
+    trained_settings: Settings, tmp_path: Path
+) -> None:
+    stale = _copy_model(trained_settings.model_dir, tmp_path / "stale")
+    payload = json.loads((stale / METADATA_FILE).read_text(encoding="utf-8"))
+    payload["schema_version"] = 0
+    (stale / METADATA_FILE).write_text(json.dumps(payload), encoding="utf-8")
+    with pytest.raises(ValueError, match="incompatible"):
+        load_artifacts(stale)
+
+    broken = _copy_model(trained_settings.model_dir, tmp_path / "broken")
+    (broken / MODEL_FILE).unlink()
+    with pytest.raises(FileNotFoundError, match="missing"):
+        load_artifacts(broken)
+
+
+def test_saving_leaves_no_staging_directories(trained_settings: Settings) -> None:
+    parent = trained_settings.model_dir.parent
+    assert [path.name for path in parent.iterdir()] == [trained_settings.model_dir.name]

@@ -11,6 +11,7 @@ from xgboost import XGBClassifier
 
 from tennis_predictor.config import Settings
 from tennis_predictor.data.loader import load_matches
+from tennis_predictor.data.rankings import latest_rankings
 from tennis_predictor.data.schema import day_to_date
 from tennis_predictor.evaluation.report import Report, build_report, write_report
 from tennis_predictor.features.dataset import build_dataset
@@ -32,17 +33,27 @@ def run_training(settings: Settings, *, use_cache: bool = True) -> ArtifactMetad
     """Load data, build features, fit every model and save the artifacts."""
     matches = load_matches(settings.data, settings.tour, use_cache=use_cache)
     dataset, tracker = build_dataset(matches, settings)
+    cutoff = day_to_date(tracker.last_day)
+    rankings = latest_rankings(settings.data.raw_dir, settings.tour, cutoff)
+    if rankings is not None:
+        tracker.apply_rankings(
+            {
+                int(player): (float(rank), float(points))
+                for player, rank, points in rankings.itertuples(index=False, name=None)
+            }
+        )
+        logger.info("Serving ranks from the official list of %s", rankings.attrs["ranking_date"])
     result = train_models(dataset, settings)
-    best = min(result.search, key=lambda candidate: candidate.val_log_loss)
     metadata = ArtifactMetadata(
         created_at=dt.datetime.now(dt.UTC).replace(microsecond=0),
         tour=settings.tour,
-        data_cutoff=day_to_date(tracker.last_day),
+        data_cutoff=cutoff,
+        rankings_date=rankings.attrs["ranking_date"] if rankings is not None else None,
         feature_names=list(FEATURE_NAMES),
         settings=settings.model_dump(mode="json"),
         calibration_slope=result.calibrator.slope,
-        best_params=best.params,
-        best_iteration=best.best_iteration,
+        best_params=result.best.params,
+        best_iteration=result.best.best_iteration,
         search=[asdict(candidate) for candidate in result.search],
         row_counts=result.row_counts,
         logistic_coefficients=logistic_coefficients(result.logistic),
@@ -65,7 +76,9 @@ def run_evaluation(settings: Settings, *, n_resamples: int = 2000) -> tuple[Repo
     predictions = load_predictions(settings.model_dir)
     model = XGBClassifier()
     model.load_model(settings.model_dir / MODEL_FILE)
-    scores = model.get_booster().get_score(importance_type="total_gain")
+    # Only the trees kept by early stopping are used for predictions.
+    used_trees = model.get_booster()[: metadata.best_iteration + 1]
+    scores = used_trees.get_score(importance_type="total_gain")
     importance = {
         name: float(sum(value) if isinstance(value, list) else value)
         for name, value in scores.items()

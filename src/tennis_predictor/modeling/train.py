@@ -108,10 +108,14 @@ class SearchResult:
 
 def fit_xgboost(
     train: Dataset, val: Dataset, cfg: XGBoostConfig, seed: int
-) -> tuple[XGBClassifier, list[SearchResult]]:
-    """Fit one model per grid candidate with early stopping; keep the best on validation."""
+) -> tuple[XGBClassifier, SearchResult, list[SearchResult]]:
+    """Fit one model per grid candidate with early stopping; keep the best on validation.
+
+    Returns the selected model, its search result and the results of every candidate
+    (ties keep the earliest candidate).
+    """
     X_train, y_train = _swap_augmented(train) if cfg.augment_swapped else (train.X, train.y)
-    best: XGBClassifier | None = None
+    best: tuple[XGBClassifier, SearchResult] | None = None
     results: list[SearchResult] = []
     for params in cfg.candidates():
         model = XGBClassifier(
@@ -137,11 +141,11 @@ def fit_xgboost(
         logger.info(
             "XGBoost %s -> %d trees, validation log-loss %.4f", params, result.best_iteration, score
         )
-        if not results or score < min(r.val_log_loss for r in results):
-            best = model
+        if best is None or score < best[1].val_log_loss:
+            best = (model, result)
         results.append(result)
     assert best is not None
-    return best, results
+    return best[0], best[1], results
 
 
 @dataclass(frozen=True)
@@ -152,6 +156,7 @@ class TrainingResult:
     calibrator: TemperatureScaler
     logistic: Pipeline
     rank: RankBaseline
+    best: SearchResult
     search: list[SearchResult]
     predictions: pd.DataFrame
     row_counts: dict[str, int]
@@ -166,7 +171,7 @@ def train_models(dataset: Dataset, settings: Settings) -> TrainingResult:
 
     rank = RankBaseline().fit(train.X, train.y)
     logistic = make_logistic(settings.logistic_c).fit(train.X, train.y)
-    xgb, search = fit_xgboost(train, val, settings.xgboost, settings.seed)
+    xgb, best, search = fit_xgboost(train, val, settings.xgboost, settings.seed)
     calibrator = TemperatureScaler.fit(symmetric_proba(positive_proba(xgb), val.X), val.y)
     logger.info("Temperature scaling slope: %.3f", calibrator.slope)
 
@@ -184,4 +189,4 @@ def train_models(dataset: Dataset, settings: Settings) -> TrainingResult:
         frames.append(frame)
     predictions = pd.concat(frames, ignore_index=True)
     counts = {"train": len(train), "val": len(val), "test": len(test)}
-    return TrainingResult(xgb, calibrator, logistic, rank, search, predictions, counts)
+    return TrainingResult(xgb, calibrator, logistic, rank, best, search, predictions, counts)

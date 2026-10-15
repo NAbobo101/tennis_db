@@ -414,6 +414,15 @@ class FeatureTracker:
         record[0 if winner.player_id == lo else 1] += 1
         self.last_day = max(self.last_day, ctx.day)
 
+    def apply_rankings(self, ranks: dict[int, tuple[float, float]]) -> None:
+        """Replace every player's rank and points with an official ranking list.
+
+        Players missing from the list are unranked. Only used once the whole history has
+        been replayed, to serve predictions with the ranks in force at the data cutoff.
+        """
+        for player_id, state in self.players.items():
+            state.rank, state.rank_points = ranks.get(player_id, (math.nan, math.nan))
+
     # ------------------------------------------------------------------ introspection
     def players_frame(self) -> pd.DataFrame:
         """One row per player with identity, latest facts, ratings and activity."""

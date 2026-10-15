@@ -1,0 +1,316 @@
+{
+  "tour": "wta",
+  "data_cutoff": "2024-12-16",
+  "row_counts": {
+    "train": 27456,
+    "val": 4675,
+    "test": 4916
+  },
+  "metrics": {
+    "val": {
+      "Rank baseline": {
+        "n": 4675,
+        "log_loss": 0.6330395910463265,
+        "brier": 0.22105097227914547,
+        "accuracy": 0.6464171122994652,
+        "roc_auc": 0.6969389081059316,
+        "ece": 0.017038542000085376
+      },
+      "Elo baseline": {
+        "n": 4675,
+        "log_loss": 0.5976923313837126,
+        "brier": 0.20592865013895714,
+        "accuracy": 0.6785026737967914,
+        "roc_auc": 0.7411186149087647,
+        "ece": 0.01791347831257293
+      },
+      "Logistic regression": {
+        "n": 4675,
+        "log_loss": 0.5920224478412616,
+        "brier": 0.20358662943917452,
+        "accuracy": 0.6772192513368984,
+        "roc_auc": 0.7475173410933581,
+        "ece": 0.01436750306016209
+      },
+      "XGBoost (calibrated)": {
+        "n": 4675,
+        "log_loss": 0.5920190710039474,
+        "brier": 0.20353383714140072,
+        "accuracy": 0.6797860962566845,
+        "roc_auc": 0.7476985303537766,
+        "ece": 0.013000627556930072
+      }
+    },
+    "test": {
+      "Rank baseline": {
+        "n": 4916,
+        "log_loss": 0.6312117618811267,
+        "brier": 0.2209282183864187,
+        "accuracy": 0.6383238405207485,
+        "roc_auc": 0.6945257726566385,
+        "ece": 0.016938069068858346
+      },
+      "Elo baseline": {
+        "n": 4916,
+        "log_loss": 0.5990850042321385,
+        "brier": 0.2071988344712052,
+        "accuracy": 0.6625305126118796,
+        "roc_auc": 0.7362744572252227,
+        "ece": 0.018306315267451304
+      },
+      "Logistic regression": {
+        "n": 4916,
+        "log_loss": 0.5917660935953182,
+        "brier": 0.20395559516446216,
+        "accuracy": 0.6765663140764849,
+        "roc_auc": 0.7461152812510552,
+        "ece": 0.013591894510693123
+      },
+      "XGBoost (calibrated)": {
+        "n": 4916,
+        "log_loss": 0.5916403668717833,
+        "brier": 0.2040478961821718,
+        "accuracy": 0.6737184703010578,
+        "roc_auc": 0.7453803478817034,
+        "ece": 0.011293451849364096
+      }
+    }
+  },
+  "breakdowns": {
+    "Surface": [
+      {
+        "surface": "Clay",
+        "n": 1270,
+        "Elo log-loss": 0.5940017111305343,
+        "Elo accuracy": 0.6669291338582677,
+        "Logistic log-loss": 0.5848834670955757,
+        "Logistic accuracy": 0.6834645669291338,
+        "XGBoost log-loss": 0.5871279811026945,
+        "XGBoost accuracy": 0.6740157480314961
+      },
+      {
+        "surface": "Grass",
+        "n": 586,
+        "Elo log-loss": 0.6114749592882609,
+        "Elo accuracy": 0.6535836177474402,
+        "Logistic log-loss": 0.592143469411723,
+        "Logistic accuracy": 0.6774744027303754,
+        "XGBoost log-loss": 0.5909979950640653,
+        "XGBoost accuracy": 0.6791808873720137
+      },
+      {
+        "surface": "Hard",
+        "n": 3060,
+        "Elo log-loss": 0.598822020106697,
+        "Elo accuracy": 0.6624183006535947,
+        "Logistic log-loss": 0.59455033981305,
+        "Logistic accuracy": 0.6735294117647059,
+        "XGBoost log-loss": 0.5936361707299748,
+        "XGBoost accuracy": 0.6725490196078432
+      }
+    ],
+    "Level": [
+      {
+        "tourney_level": "F",
+        "n": 45,
+        "Elo log-loss": 0.6476848720923772,
+        "Elo accuracy": 0.5777777777777777,
+        "Logistic log-loss": 0.6277322895743679,
+        "Logistic accuracy": 0.6,
+        "XGBoost log-loss": 0.6143433349240279,
+        "XGBoost accuracy": 0.6
+      },
+      {
+        "tourney_level": "G",
+        "n": 992,
+        "Elo log-loss": 0.5616341654780388,
+        "Elo accuracy": 0.6965725806451613,
+        "Logistic log-loss": 0.5551154041429309,
+        "Logistic accuracy": 0.7066532258064516,
+        "XGBoost log-loss": 0.5537234060805294,
+        "XGBoost accuracy": 0.7066532258064516
+      },
+      {
+        "tourney_level": "I",
+        "n": 1671,
+        "Elo log-loss": 0.6152926969226747,
+        "Elo accuracy": 0.6391382405745063,
+        "Logistic log-loss": 0.606809963613071,
+        "Logistic accuracy": 0.6600837821663674,
+        "XGBoost log-loss": 0.6074207706358671,
+        "XGBoost accuracy": 0.6558946738479952
+      },
+      {
+        "tourney_level": "O",
+        "n": 62,
+        "Elo log-loss": 0.6062718987662782,
+        "Elo accuracy": 0.6612903225806451,
+        "Logistic log-loss": 0.6199645977822689,
+        "Logistic accuracy": 0.6451612903225806,
+        "XGBoost log-loss": 0.6098136438490666,
+        "XGBoost accuracy": 0.6129032258064516
+      },
+      {
+        "tourney_level": "P",
+        "n": 1106,
+        "Elo log-loss": 0.6086932388326534,
+        "Elo accuracy": 0.6582278481012658,
+        "Logistic log-loss": 0.6007079316434003,
+        "Logistic accuracy": 0.6717902350813744,
+        "XGBoost log-loss": 0.5986688678223531,
+        "XGBoost accuracy": 0.6772151898734177
+      },
+      {
+        "tourney_level": "PM",
+        "n": 1040,
+        "Elo log-loss": 0.596016627862123,
+        "Elo accuracy": 0.6759615384615385,
+        "Logistic log-loss": 0.5898071687657757,
+        "Logistic accuracy": 0.6846153846153846,
+        "XGBoost log-loss": 0.5929121665149247,
+        "XGBoost accuracy": 0.6740384615384616
+      }
+    ],
+    "Best of": [
+      {
+        "best_of": 3,
+        "n": 4916,
+        "Elo log-loss": 0.5990850042321385,
+        "Elo accuracy": 0.6625305126118796,
+        "Logistic log-loss": 0.5917660935953182,
+        "Logistic accuracy": 0.6765663140764849,
+        "XGBoost log-loss": 0.5916403668717833,
+        "XGBoost accuracy": 0.6737184703010578
+      }
+    ]
+  },
+  "bootstrap": {
+    "Logistic regression vs Elo baseline": [
+      {
+        "metric": "log_loss",
+        "difference": -0.007318910636820317,
+        "lower": -0.011420651632499518,
+        "upper": -0.003255128895907099
+      },
+      {
+        "metric": "brier",
+        "difference": -0.003243239306743083,
+        "lower": -0.00505453726328116,
+        "upper": -0.0014446455320430752
+      }
+    ],
+    "XGBoost (calibrated) vs Elo baseline": [
+      {
+        "metric": "log_loss",
+        "difference": -0.007444637360355102,
+        "lower": -0.010918452682923635,
+        "upper": -0.003942522672988999
+      },
+      {
+        "metric": "brier",
+        "difference": -0.0031509382890334515,
+        "lower": -0.004693852315048878,
+        "upper": -0.0016602054748233743
+      }
+    ],
+    "XGBoost (calibrated) vs Logistic regression": [
+      {
+        "metric": "log_loss",
+        "difference": -0.00012572672353478606,
+        "lower": -0.0023357181370925718,
+        "upper": 0.001972270171837521
+      },
+      {
+        "metric": "brier",
+        "difference": 9.230101770963169e-05,
+        "lower": -0.000837610144050682,
+        "upper": 0.0010257810744997494
+      }
+    ]
+  },
+  "model": {
+    "best_params": {
+      "learning_rate": 0.03,
+      "max_depth": 5.0,
+      "min_child_weight": 50.0,
+      "subsample": 0.8,
+      "colsample_bytree": 0.8,
+      "reg_lambda": 1.0
+    },
+    "best_iteration": 123,
+    "calibration_slope": 1.1037,
+    "search": [
+      {
+        "params": {
+          "learning_rate": 0.03,
+          "max_depth": 3.0,
+          "min_child_weight": 10.0,
+          "subsample": 0.8,
+          "colsample_bytree": 0.8,
+          "reg_lambda": 1.0
+        },
+        "best_iteration": 191,
+        "val_log_loss": 0.5932451418003686
+      },
+      {
+        "params": {
+          "learning_rate": 0.03,
+          "max_depth": 4.0,
+          "min_child_weight": 20.0,
+          "subsample": 0.8,
+          "colsample_bytree": 0.8,
+          "reg_lambda": 1.0
+        },
+        "best_iteration": 191,
+        "val_log_loss": 0.5930599277561319
+      },
+      {
+        "params": {
+          "learning_rate": 0.03,
+          "max_depth": 5.0,
+          "min_child_weight": 50.0,
+          "subsample": 0.8,
+          "colsample_bytree": 0.8,
+          "reg_lambda": 1.0
+        },
+        "best_iteration": 123,
+        "val_log_loss": 0.5927040283233618
+      }
+    ]
+  },
+  "feature_importance_gain": {
+    "elo_diff": 39669.328125,
+    "surface_elo_diff": 13432.751953125,
+    "elo_blend_logit": 92382.609375,
+    "elo_matches_log_diff": 1006.3842163085938,
+    "surface_matches_log_diff": 395.666259765625,
+    "elo_matches_log_min": 661.7484741210938,
+    "log_rank_diff": 1311.08544921875,
+    "log_points_diff": 1932.2662353515625,
+    "spw_diff": 860.8479614257812,
+    "rpw_diff": 229.57363891601562,
+    "ace_rate_diff": 593.132568359375,
+    "df_rate_diff": 341.56549072265625,
+    "first_in_diff": 442.33697509765625,
+    "first_won_diff": 464.2994384765625,
+    "second_won_diff": 726.2718505859375,
+    "bp_saved_diff": 307.97357177734375,
+    "bp_converted_diff": 221.3695526123047,
+    "spw_plus_rpw_diff": 5150.26123046875,
+    "stats_mass_log_min": 301.3338928222656,
+    "form_diff": 1198.6552734375,
+    "h2h_score": 671.052001953125,
+    "h2h_matches_log": 47.750709533691406,
+    "rest_days_log_diff": 1815.5191650390625,
+    "recent_matches_diff": 5183.55859375,
+    "tourney_games_diff": 624.86376953125,
+    "after_retirement_diff": 317.3634033203125,
+    "age_diff": 1977.5457763671875,
+    "height_diff": 516.3528442382812,
+    "left_handed_diff": 44.82684326171875,
+    "qualifier_diff": 42.826725006103516,
+    "surface_clay": 18.626420974731445,
+    "level_ordinal": 204.53375244140625,
+    "round_ordinal": 125.61595153808594
+  }
+}

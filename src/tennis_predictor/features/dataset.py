@@ -136,6 +136,11 @@ def _texts(frame: pd.DataFrame, column: str) -> list[str]:
 def build_dataset(matches: pd.DataFrame, settings: Settings) -> tuple[Dataset, FeatureTracker]:
     """Replay the whole history once, snapshotting features before every eligible match.
 
+    Matches of the same round of the same event (same week, ``tourney_id`` and round) are
+    treated as simultaneous: every snapshot of the block is taken before any of its results
+    is applied. Upstream match numbers are not chronological inside round-robin stages
+    (Tour Finals, team cups), so replaying them one by one would leak later results.
+
     Returns the dataset and the tracker in its final state (used for serving predictions).
     """
     tracker = FeatureTracker(settings.elo, settings.features, settings.tour)
@@ -161,9 +166,17 @@ def build_dataset(matches: pd.DataFrame, settings: Settings) -> tuple[Dataset, F
     labels: list[int] = []
     positions: list[int] = []
     flips: list[int] = []
+    pending: list[tuple[PlayerInfo, PlayerInfo, MatchContext, MatchResult]] = []
+    block: tuple[int, str, int] | None = None
     for i in range(len(matches)):
         if excluded[i]:
             continue
+        key = (days[i], tourney_ids[i], round_orders[i])
+        if key != block:
+            for update in pending:
+                tracker.update(*update)
+            pending.clear()
+            block = key
         ctx = MatchContext(
             day=days[i],
             tourney_id=tourney_ids[i],
@@ -190,7 +203,9 @@ def build_dataset(matches: pd.DataFrame, settings: Settings) -> tuple[Dataset, F
             winner_games=w_games[i],
             loser_games=l_games[i],
         )
-        tracker.update(winner, loser, ctx, result)
+        pending.append((winner, loser, ctx, result))
+    for update in pending:
+        tracker.update(*update)
 
     X = pd.DataFrame(rows, columns=list(FEATURE_NAMES), dtype="float64")
     meta = _metadata(matches, positions, flips, settings.split.split_of)

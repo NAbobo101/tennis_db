@@ -25,7 +25,7 @@ def carregar_e_treinar(prefixo_liga):
     """
     print(f"\n=== INICIANDO PROCESSAMENTO DA LIGA: {prefixo_liga.upper()} ===")
     
-    pasta_base = 'database'
+    pasta_base = os.path.join('data', 'raw', f'tennis_{prefixo_liga}')
     anos = range(2000, 2024)  # Usando dados de 2000-2023
     
     # Carregamento dos dados

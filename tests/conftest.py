@@ -42,3 +42,13 @@ def built(matches: pd.DataFrame, settings: Settings) -> tuple[Dataset, FeatureTr
 @pytest.fixture(scope="session")
 def dataset(built: tuple[Dataset, FeatureTracker]) -> Dataset:
     return built[0]
+
+
+@pytest.fixture(scope="session")
+def trained_settings(settings: Settings) -> Settings:
+    """Settings whose model directory holds trained artifacts and a report."""
+    from tennis_predictor.pipeline import run_evaluation, run_training
+
+    run_training(settings, use_cache=False)
+    run_evaluation(settings, n_resamples=200)
+    return settings

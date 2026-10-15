@@ -17,18 +17,23 @@ the upstream repositories one to one:
 |---|---|
 | `tennis_atp/atp_matches_YYYY.csv`, `tennis_wta/wta_matches_YYYY.csv` | Rating history **and** the training/evaluation rows (tour-level main draws) |
 | `tennis_atp/atp_matches_qual_chall_YYYY.csv`, `tennis_atp/atp_matches_futures_YYYY.csv`, `tennis_wta/wta_matches_qual_itf_YYYY.csv` | Rating history only (Elo, form, head-to-head) |
-| Players, rankings, doubles, amateur, Match Charting Project | Not used by the model; kept for exploration and future work |
+| `*_rankings_20s.csv`, `*_rankings_current.csv` | Official ranks at the data cutoff, used when serving predictions |
+| Players, older rankings, doubles, amateur, Match Charting Project | Not used by the model; kept for exploration and future work |
 
 Ranks, ages, heights, handedness and entry status are read directly from the match rows,
 where they are recorded as of the tournament date.
 
 ## Re-downloading
 
-The same layout can be rebuilt from upstream with:
+Every file the pipeline reads (the singles match files of all tiers, the player lists and the
+recent ranking files) can be re-downloaded from upstream with:
 
 ```bash
 uv run tennis data download --tour all --dest data/raw
 ```
+
+Older rankings, doubles and amateur files and the Match Charting Project are not fetched by this
+command; clone the upstream repositories if you need them.
 
 ## License and attribution
 

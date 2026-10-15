@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, PositiveFloat, PositiveInt, m
 Tour = Literal["atp", "wta"]
 Tier = Literal["main", "qual_chall", "futures", "qual_itf"]
 
-TIERS_BY_TOUR: dict[str, frozenset[str]] = {
+TIERS_BY_TOUR: dict[str, frozenset[Tier]] = {
     "atp": frozenset({"main", "qual_chall", "futures"}),
     "wta": frozenset({"main", "qual_itf"}),
 }

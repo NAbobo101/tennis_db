@@ -1,5 +1,9 @@
 from __future__ import annotations
 
+import http.client
+import urllib.error
+import urllib.request
+from email.message import Message
 from pathlib import Path
 
 import pytest
@@ -22,7 +26,7 @@ def test_plan_downloads() -> None:
         "atp_matches_2024.csv",
         "atp_matches_futures_2024.csv",
     ]
-    assert "atp_players.csv" in names
+    assert {"atp_players.csv", "atp_rankings_20s.csv", "atp_rankings_current.csv"} <= set(names)
     assert {file.repo for file in files} == {"tennis_atp"}
     assert files[0].url("master") == (
         "https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_matches_2023.csv"
@@ -69,3 +73,52 @@ def test_download_files(tmp_path: Path) -> None:
 def test_fetch_url_refuses_plain_http() -> None:
     with pytest.raises(DownloadError, match="non-HTTPS"):
         fetch_url("http://example.com/file.csv")
+
+
+class _Response:
+    def __init__(self, url: str, body: bytes = b"ok", error: BaseException | None = None) -> None:
+        self.url, self.body, self.error = url, body, error
+
+    def __enter__(self) -> _Response:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def geturl(self) -> str:
+        return self.url
+
+    def read(self) -> bytes:
+        if self.error:
+            raise self.error
+        return self.body
+
+
+@pytest.mark.parametrize(
+    ("behaviour", "expected"),
+    [
+        (urllib.error.HTTPError("https://x", 404, "Not Found", Message(), None), FileNotFoundError),
+        (urllib.error.HTTPError("https://x", 500, "Server Error", Message(), None), DownloadError),
+        (urllib.error.URLError("no route"), DownloadError),
+        (TimeoutError("slow"), DownloadError),
+        (_Response("https://x", error=ConnectionResetError("reset")), DownloadError),
+        (_Response("https://x", error=http.client.IncompleteRead(b"")), DownloadError),
+        (_Response("http://evil.example/file.csv"), DownloadError),
+    ],
+)
+def test_fetch_url_maps_failures(
+    monkeypatch: pytest.MonkeyPatch, behaviour: object, expected: type[Exception]
+) -> None:
+    def fake_urlopen(url: str, timeout: float) -> object:
+        if isinstance(behaviour, BaseException):
+            raise behaviour
+        return behaviour
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    with pytest.raises(expected):
+        fetch_url("https://raw.githubusercontent.com/JeffSackmann/tennis_atp/master/x.csv")
+
+
+def test_fetch_url_returns_the_body(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(urllib.request, "urlopen", lambda url, timeout: _Response(url, b"a,b\n"))
+    assert fetch_url("https://example.com/file.csv") == b"a,b\n"

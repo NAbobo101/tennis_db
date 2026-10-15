@@ -10,13 +10,24 @@ from typer.testing import CliRunner
 from tennis_predictor import __version__
 from tennis_predictor.cli import app
 from tennis_predictor.config import Settings
-from tennis_predictor.data.download import DownloadReport, RemoteFile, download_files
+from tennis_predictor.data.download import DownloadError, DownloadReport, RemoteFile, download_files
+from tests.synthetic import write_settings
 
 runner = CliRunner()
 
 
 def invoke(*args: str):
     return runner.invoke(app, list(args), catch_exceptions=False)
+
+
+def assert_clean_failure(result, message: str) -> None:
+    """Exit code 1 with a friendly message, not an unexpected exception."""
+    output = " ".join(result.output.split())  # Rich wraps long lines
+    assert result.exit_code == 1, result.output
+    assert result.exception is None or isinstance(result.exception, SystemExit)
+    assert "Error:" in output
+    assert message in output
+    assert "Traceback" not in output
 
 
 def test_version() -> None:
@@ -87,8 +98,26 @@ def test_predict_grand_slam_defaults_to_best_of_five(models_dir: Path) -> None:
 )
 def test_predict_errors(models_dir: Path, args: list[str], message: str) -> None:
     result = runner.invoke(app, ["predict", *args, "--models-dir", str(models_dir)])
-    assert result.exit_code == 1
-    assert message in result.output
+    assert_clean_failure(result, message)
+
+
+def test_options_are_case_insensitive(models_dir: Path) -> None:
+    result = invoke(
+        "predict", "Adam Archer", "Adam Fletcher", "--models-dir", str(models_dir),
+        "--tour", "ATP", "--surface", "Hard", "--event", "Grand-Slam", "--json",
+    )  # fmt: skip
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["best_of"] == 5
+
+
+def test_inactive_player_warning(models_dir: Path) -> None:
+    result = invoke(
+        "predict", "Carl Solo", "Adam Archer", "--models-dir", str(models_dir), "--json"
+    )
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.output)["warnings"]
+    table = invoke("predict", "Carl Solo", "Adam Archer", "--models-dir", str(models_dir))
+    assert "has not played since" in table.output
 
 
 def test_predict_warns_far_beyond_cutoff(models_dir: Path) -> None:
@@ -105,7 +134,7 @@ def test_players_search(models_dir: Path) -> None:
     assert "Ana Twin" in result.output
     assert "Bea Twin" in result.output
     missing = runner.invoke(app, ["players", "search", "zzzzzz", "--models-dir", str(models_dir)])
-    assert missing.exit_code == 1
+    assert_clean_failure(missing, "no player matches")
 
 
 def test_ratings(models_dir: Path) -> None:
@@ -117,8 +146,7 @@ def test_ratings(models_dir: Path) -> None:
 
 def test_missing_model(tmp_path: Path) -> None:
     result = runner.invoke(app, ["predict", "A", "B", "--models-dir", str(tmp_path)])
-    assert result.exit_code == 1
-    assert "tennis train" in result.output
+    assert_clean_failure(result, "tennis train")
 
 
 def test_missing_report_inputs(tmp_path: Path, config_path: Path) -> None:
@@ -128,7 +156,20 @@ def test_missing_report_inputs(tmp_path: Path, config_path: Path) -> None:
     other = tmp_path / "atp.yaml"
     other.write_text(config, encoding="utf-8")
     result = runner.invoke(app, ["evaluate", "--config", str(other)])
-    assert result.exit_code == 1
+    assert_clean_failure(result, "tennis train")
+
+
+def test_train_without_data_fails_cleanly(tmp_path: Path) -> None:
+    config = write_settings(tmp_path / "atp.yaml", tmp_path)
+    result = runner.invoke(app, ["train", "--config", str(config)])
+    assert_clean_failure(result, "tennis data download")
+
+
+def test_invalid_config_fails_cleanly(tmp_path: Path) -> None:
+    config = write_settings(tmp_path / "atp.yaml", tmp_path, split={"train_start": 2023})
+    for command in ("train", "evaluate"):
+        result = runner.invoke(app, [command, "--config", str(config)])
+        assert_clean_failure(result, "split years must be ordered")
 
 
 def test_data_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -162,3 +203,28 @@ def test_data_download(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     assert (tmp_path / "tennis_atp" / "atp_matches_2024.csv").is_file()
     assert "1 not published upstream" in result.output
     assert any(url.endswith("atp_players.csv") for url in calls)
+
+
+def test_data_download_reports_failures_after_every_tour(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    fetched: list[str] = []
+
+    def flaky(
+        files: Sequence[RemoteFile], dest: Path, *, ref: str = "master", overwrite: bool = False
+    ) -> DownloadReport:
+        def fetch(url: str) -> bytes:
+            fetched.append(url)
+            if url.endswith("atp_players.csv"):
+                raise DownloadError("HTTP 500")
+            return b"x\n"
+
+        return download_files(files, dest, ref=ref, overwrite=overwrite, fetch=fetch)
+
+    monkeypatch.setattr("tennis_predictor.cli.download_files", flaky)
+    result = runner.invoke(
+        app,
+        ["data", "download", "--from-year", "2024", "--to-year", "2024", "--dest", str(tmp_path)],
+    )
+    assert_clean_failure(result, "1 files could not be downloaded")
+    assert any("tennis_wta" in url for url in fetched)  # WTA still ran after the ATP failure

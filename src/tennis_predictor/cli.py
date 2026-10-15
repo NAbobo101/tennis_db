@@ -7,15 +7,17 @@ import json
 import logging
 from enum import StrEnum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, cast
 
 import typer
+import yaml
+from pydantic import ValidationError
 from rich.console import Console
 from rich.logging import RichHandler
 from rich.table import Table
 
 from tennis_predictor import __version__
-from tennis_predictor.config import TIERS_BY_TOUR, load_settings
+from tennis_predictor.config import TIERS_BY_TOUR, Tour, load_settings
 from tennis_predictor.data.download import download_files, plan_downloads
 from tennis_predictor.data.schema import SURFACES, day_to_date
 from tennis_predictor.players import AmbiguousPlayerError, PlayerNotFoundError, search_players
@@ -65,7 +67,12 @@ ConfigOption = Annotated[
     typer.Option("--config", "-c", exists=True, dir_okay=False, help="YAML configuration file."),
 ]
 ModelsDirOption = Annotated[Path, typer.Option(help="Directory containing the trained models.")]
-TourArg = Annotated[TourOption, typer.Option("--tour", "-t", help="Tour of the trained model.")]
+TourArg = Annotated[
+    TourOption,
+    typer.Option("--tour", "-t", case_sensitive=False, help="Tour of the trained model."),
+]
+#: Errors caused by user input or missing files, reported without a traceback.
+USER_ERRORS = (FileNotFoundError, ValueError, ValidationError, yaml.YAMLError)
 
 
 def _version(value: bool) -> None:
@@ -101,7 +108,9 @@ def _fail(message: str) -> typer.Exit:
 
 @data_app.command("download")
 def download(
-    tour: Annotated[DownloadTour, typer.Option(help="Which tour to download.")] = DownloadTour.ALL,
+    tour: Annotated[
+        DownloadTour, typer.Option(case_sensitive=False, help="Which tour to download.")
+    ] = DownloadTour.ALL,
     from_year: Annotated[int, typer.Option(help="First season.")] = 1968,
     to_year: Annotated[int, typer.Option(help="Last season.")] = 2024,
     dest: Annotated[Path, typer.Option(help="Destination directory.")] = Path("data/raw"),
@@ -111,18 +120,20 @@ def download(
     force: Annotated[bool, typer.Option(help="Overwrite files that already exist.")] = False,
 ) -> None:
     """Download match files from Jeff Sackmann's GitHub repositories (CC BY-NC-SA 4.0)."""
-    tours = ["atp", "wta"] if tour is DownloadTour.ALL else [tour.value]
+    tours: list[Tour] = ["atp", "wta"] if tour is DownloadTour.ALL else [cast(Tour, tour.value)]
+    failed = 0
     for name in tours:
         tiers = sorted(TIERS_BY_TOUR[name], key=lambda tier: tier != "main")
-        files = plan_downloads(name, tiers, range(from_year, to_year + 1))  # type: ignore[arg-type]
+        files = plan_downloads(name, tiers, range(from_year, to_year + 1))
         report = download_files(files, dest, ref=ref, overwrite=force)
+        failed += len(report.failed)
         console.print(
             f"{name.upper()}: {len(report.downloaded)} downloaded, "
             f"{len(report.skipped)} already present, "
             f"{len(report.missing)} not published upstream, {len(report.failed)} failed"
         )
-        if not report.ok:
-            raise _fail("some files could not be downloaded; see the warnings above")
+    if failed:
+        raise _fail(f"{failed} files could not be downloaded; see the warnings above")
 
 
 @app.command()
@@ -134,15 +145,18 @@ def train(
     """Build features, fit the models and save the artifacts (and the report)."""
     from tennis_predictor.pipeline import run_training
 
-    settings = load_settings(config)
-    metadata = run_training(settings, use_cache=not no_cache)
+    try:
+        settings = load_settings(config)
+        metadata = run_training(settings, use_cache=not no_cache)
+    except USER_ERRORS as error:
+        raise _fail(str(error)) from error
     console.print(
         f"[green]Trained {settings.tour.upper()} model[/] "
         f"on {metadata.row_counts['train']:,} matches "
         f"(data until {metadata.data_cutoff}); artifacts in {settings.model_dir}"
     )
     if report:
-        _evaluate(config)
+        evaluate(config)
 
 
 def _evaluate(config: Path) -> None:
@@ -173,14 +187,14 @@ def evaluate(config: ConfigOption) -> None:
     """Score the saved validation/test predictions and write the report."""
     try:
         _evaluate(config)
-    except FileNotFoundError as error:
+    except USER_ERRORS as error:
         raise _fail(str(error)) from error
 
 
 def _load_predictor(models_dir: Path, tour: TourOption) -> Predictor:
     try:
         return Predictor.from_directory(models_dir / tour.value)
-    except FileNotFoundError as error:
+    except (FileNotFoundError, ValueError) as error:
         raise _fail(f"{error} (looked in {models_dir / tour.value})") from error
 
 
@@ -189,11 +203,20 @@ def predict(
     player_a: Annotated[str, typer.Argument(help="Name or id of player A.")],
     player_b: Annotated[str, typer.Argument(help="Name or id of player B.")],
     tour: TourArg = TourOption.ATP,
-    surface: Annotated[SurfaceOption, typer.Option(help="Court surface.")] = SurfaceOption.HARD,
+    surface: Annotated[
+        SurfaceOption, typer.Option(case_sensitive=False, help="Court surface.")
+    ] = SurfaceOption.HARD,
     best_of: Annotated[
         int | None, typer.Option(help="3 or 5 (default: 5 at ATP Grand Slams).")
     ] = None,
-    event: Annotated[Event, typer.Option(help="Kind of tournament.")] = Event.TOUR,
+    event: Annotated[
+        Event,
+        typer.Option(
+            case_sensitive=False,
+            help="Kind of tournament: 'tour' is an ATP 250/500 or a WTA 250, "
+            "'tour-500' a WTA 500, 'masters' an ATP Masters / WTA 1000.",
+        ),
+    ] = Event.TOUR,
     round_: Annotated[str, typer.Option("--round", help="Round code, e.g. R32, QF, F.")] = "R32",
     as_of: Annotated[
         str | None, typer.Option(help="Prediction date YYYY-MM-DD (default: the data cutoff).")
@@ -222,6 +245,7 @@ def predict(
             "top_factors": [
                 {"feature": name, "log_odds": round(value, 4)} for name, value in result.top_factors
             ],
+            "warnings": result.warnings,
         }
         console.print_json(json.dumps(payload))
         return
@@ -242,6 +266,8 @@ def predict(
         f"Favourite: [bold]{result.favourite.name}[/]. Main factors for {result.a.name}: {factors}"
     )
     console.print(f"[dim]State as of {result.as_of} (data cutoff {predictor.data_cutoff}).[/]")
+    for warning in result.warnings:
+        console.print(f"[yellow]Warning:[/] {warning}")
     if (result.as_of - predictor.data_cutoff).days > 60:
         console.print(
             "[yellow]Warning:[/] predicting far beyond the data cutoff; form and ranks are stale."
@@ -280,7 +306,8 @@ def players_search(
 def ratings(
     tour: TourArg = TourOption.ATP,
     surface: Annotated[
-        SurfaceOption | None, typer.Option(help="Rank by surface Elo instead.")
+        SurfaceOption | None,
+        typer.Option(case_sensitive=False, help="Rank by surface Elo instead."),
     ] = None,
     top: Annotated[int, typer.Option(min=1, max=200)] = 20,
     active_days: Annotated[int, typer.Option(help="Only players active in this window.")] = 365,

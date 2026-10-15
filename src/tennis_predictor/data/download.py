@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import http.client
 import logging
 import os
 import tempfile
@@ -18,8 +19,13 @@ logger = logging.getLogger(__name__)
 
 RAW_URL = "https://raw.githubusercontent.com/JeffSackmann/{repo}/{ref}/{name}"
 EXTRA_FILES: dict[str, tuple[str, ...]] = {
-    "atp": ("atp_players.csv", "matches_data_dictionary.txt"),
-    "wta": ("wta_players.csv",),
+    "atp": (
+        "atp_players.csv",
+        "atp_rankings_20s.csv",
+        "atp_rankings_current.csv",
+        "matches_data_dictionary.txt",
+    ),
+    "wta": ("wta_players.csv", "wta_rankings_20s.csv", "wta_rankings_current.csv"),
 }
 
 
@@ -82,13 +88,15 @@ def fetch_url(url: str, *, timeout: float = 60.0) -> bytes:
         raise DownloadError(f"refusing non-HTTPS URL: {url}")
     try:
         with urllib.request.urlopen(url, timeout=timeout) as response:
+            if not response.geturl().startswith("https://"):
+                raise DownloadError(f"refusing redirect to non-HTTPS URL {response.geturl()}")
             data: bytes = response.read()
     except urllib.error.HTTPError as error:
         if error.code == 404:
             raise FileNotFoundError(url) from error
         raise DownloadError(f"HTTP {error.code} for {url}") from error
-    except (urllib.error.URLError, TimeoutError) as error:
-        raise DownloadError(f"cannot reach {url}: {error}") from error
+    except (OSError, http.client.HTTPException) as error:  # URLError, timeouts, resets
+        raise DownloadError(f"cannot download {url}: {error}") from error
     return data
 
 

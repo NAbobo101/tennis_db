@@ -52,3 +52,15 @@ def trained_settings(settings: Settings) -> Settings:
     run_training(settings, use_cache=False)
     run_evaluation(settings, n_resamples=200)
     return settings
+
+
+@pytest.fixture(scope="session")
+def wta_settings(tmp_path_factory: pytest.TempPathFactory) -> Settings:
+    """A trained WTA model on synthetic WTA files."""
+    from tennis_predictor.pipeline import run_training
+
+    root = tmp_path_factory.mktemp("synthetic_wta")
+    write_synthetic_tour(root / "raw", tour="wta", seed=1)
+    settings = load_settings(write_settings(root / "wta.yaml", root, tour="wta"))
+    run_training(settings, use_cache=False)
+    return settings

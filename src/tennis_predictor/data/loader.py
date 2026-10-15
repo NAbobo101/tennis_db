@@ -28,7 +28,7 @@ from tennis_predictor.data.scores import parse_scores
 logger = logging.getLogger(__name__)
 
 #: Bump when the cleaning logic changes so stale parquet caches are rebuilt.
-CACHE_VERSION = 1
+CACHE_VERSION = 2
 
 SORT_KEY = ["day", "tourney_id", "round_order", "match_num"]
 _EPOCH = np.datetime64(EPOCH.isoformat(), "D")
@@ -58,6 +58,42 @@ def read_match_file(path: Path, tier: Tier) -> pd.DataFrame:
     return frame
 
 
+_OLYMPICS = re.compile(r"(?i)olympic")
+_ATP_FINALS = re.compile(r"(?i)^(tour finals|masters cup)$")
+_WTA_FINALS = re.compile(r"(?i)^wta (tour )?(finals|championships)$")
+_WTA_125 = re.compile(r"\b125\b")
+_WTA_1000 = re.compile(r"(?i)^(indian wells|miami|madrid|beijing)$")
+
+
+def normalize_levels(
+    tour: Tour, names: Sequence[str], levels: Sequence[str], years: Sequence[int]
+) -> list[str]:
+    """Fix tournament level codes that drift between seasons upstream.
+
+    For example the 2023 ATP Finals is coded ``A``, the WTA Indian Wells / Miami /
+    Madrid / Beijing events alternate between ``PM`` and ``P``, the 2015 WTA Finals is
+    ``W``, WTA 250 events are ``W`` in 2021 and the Olympics are ``A`` before 2024.
+    WTA 125 events become ``C`` (Challenger-like) so they never count as tour level.
+    """
+    fixed = []
+    for name, level, year in zip(names, levels, years, strict=True):
+        if _OLYMPICS.search(name):
+            level = "O"
+        elif tour == "atp" and _ATP_FINALS.match(name):
+            level = "F"
+        elif tour == "wta":
+            if _WTA_FINALS.match(name):
+                level = "F"
+            elif _WTA_125.search(name):
+                level = "C"
+            elif _WTA_1000.match(name) and level in {"P", "PM"}:
+                level = "PM"
+            elif level == "W" and year >= 2009:
+                level = "I"
+        fixed.append(level)
+    return fixed
+
+
 def _valid_stats(frame: pd.DataFrame, columns: Sequence[str]) -> pd.Series:
     ace, df, svpt, first_in, first_won, second_won, _, bp_saved, bp_faced = (
         frame[column] for column in columns
@@ -69,13 +105,20 @@ def _valid_stats(frame: pd.DataFrame, columns: Sequence[str]) -> pd.Series:
         & (df >= 0)
         & (first_in <= svpt)
         & (first_won <= first_in)
-        & (second_won <= svpt - first_in)
+        & (second_won <= svpt - first_in - df)
         & (ace + df <= svpt)
         & (bp_saved <= bp_faced)
     )
 
 
-def clean_matches(frame: pd.DataFrame, exclude_tourneys: str) -> pd.DataFrame:
+def _plausible_volume(frame: pd.DataFrame) -> pd.Series:
+    """Serve points must match the number of games played (3 to 10 points per game)."""
+    games = frame["w_games"] + frame["l_games"]
+    points = frame["w_svpt"] + frame["l_svpt"]
+    return (games == 0) | ((points >= 3 * games) & (points <= 10 * games))
+
+
+def clean_matches(frame: pd.DataFrame, exclude_tourneys: str, tour: Tour) -> pd.DataFrame:
     """Normalize types and values, flag usable rows and drop broken ones.
 
     Adds the columns ``day`` (days since :data:`~tennis_predictor.data.schema.EPOCH` of the
@@ -103,9 +146,14 @@ def clean_matches(frame: pd.DataFrame, exclude_tourneys: str) -> pd.DataFrame:
     best_of = df["best_of"].where(df["best_of"].isin([3, 5]), 3)
     df["best_of"] = best_of.astype("int8")
     df["surface"] = [canonical_surface(value) for value in df["surface"].tolist()]
-    df["tourney_level"] = df["tourney_level"].fillna("").str.strip()
     df["tourney_id"] = df["tourney_id"].fillna("").str.strip()
-    df["tourney_name"] = df["tourney_name"].fillna("")
+    df["tourney_name"] = df["tourney_name"].fillna("").str.strip()
+    df["tourney_level"] = normalize_levels(
+        tour,
+        df["tourney_name"].tolist(),
+        df["tourney_level"].fillna("").str.strip().tolist(),
+        df["year"].tolist(),
+    )
     for side in ("winner", "loser"):
         df[f"{side}_name"] = df[f"{side}_name"].fillna("").str.strip()
         df[f"{side}_hand"] = df[f"{side}_hand"].fillna("U").str.strip().str.upper()
@@ -129,6 +177,7 @@ def clean_matches(frame: pd.DataFrame, exclude_tourneys: str) -> pd.DataFrame:
         (df["outcome"] == Outcome.COMPLETED.value)
         & _valid_stats(df, WINNER_STATS)
         & _valid_stats(df, LOSER_STATS)
+        & _plausible_volume(df)
     )
 
     df = df.drop_duplicates(subset=["tourney_id", "winner_id", "loser_id", "round", "score"])
@@ -174,7 +223,7 @@ def load_matches(cfg: DataConfig, tour: Tour, *, use_cache: bool = True) -> pd.D
 
     logger.info("Reading %d %s match files", len(files), tour.upper())
     frames = [read_match_file(path, tier) for tier, path in files]
-    matches = clean_matches(pd.concat(frames, ignore_index=True), cfg.exclude_tourneys)
+    matches = clean_matches(pd.concat(frames, ignore_index=True), cfg.exclude_tourneys, tour)
     logger.info("Loaded %d matches", len(matches))
     if use_cache:
         cfg.cache_dir.mkdir(parents=True, exist_ok=True)

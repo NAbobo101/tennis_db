@@ -37,7 +37,14 @@ def test_normalize_score(raw: object, expected: str) -> None:
         ("6-4 2-1 RET", Outcome.RETIRED),
         ("2-1 ret", Outcome.RETIRED),
         ("6-4 6-4 rtd.", Outcome.RETIRED),
-        ("RET", Outcome.RETIRED),
+        ("RET", Outcome.WALKOVER),  # retired before a game was played
+        ("0-0 RET", Outcome.WALKOVER),
+        ("5-1 RE", Outcome.RETIRED),
+        ("6-3 0-0 Ret'd", Outcome.RETIRED),
+        ("2-6 3-0", Outcome.RETIRED),  # no marker, but the winner won fewer sets
+        ("5-7 5-4", Outcome.RETIRED),  # no marker, but the last set is unfinished
+        ("70-68", Outcome.COMPLETED),
+        ("4-6 6-4 [10-8]", Outcome.COMPLETED),
         ("W/O", Outcome.WALKOVER),
         (" W/O", Outcome.WALKOVER),
         ("W.0", Outcome.WALKOVER),
@@ -63,6 +70,7 @@ def test_classify_outcome(score: str, outcome: Outcome) -> None:
         ("7-6(5) 4-6 6-4", (17, 16)),
         ("6-3 3-6 [10-7]", (10, 9)),
         ("6-4 2-1 RET", (8, 5)),
+        ("6-3 0-0 Ret'd", (6, 3)),
         ("70-68", (70, 68)),
         ("7-Oct", None),
     ],

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from functools import lru_cache
 
 import pandas as pd
@@ -16,11 +17,11 @@ _MATCH_TIEBREAK = re.compile(r"^\[(\d{1,2})-(\d{1,2})\]$")
 
 _WALKOVER = re.compile(r"\bW[/.]?[O0]\b|WALKOVER")
 _DEFAULT = re.compile(r"\bDEF")
-_RETIRED = re.compile(r"\bRET|\bRTD")
+_RETIRED = re.compile(r"\bRET|\bRTD|\bRE\b")
 _ABANDONED = re.compile(r"\bAB(?:D|N|ANDONED)?\b|UNFINISHED")
 _UNKNOWN = re.compile(r"\bUNK")
 _STATUS_TOKENS = frozenset(
-    {"RET", "RET.", "RTD", "RTD.", "DEF", "DEF.", "DEFAULT", "AB", "ABD", "ABN"}
+    {"RE", "RET", "RET.", "RET'D", "RTD", "RTD.", "DEF", "DEF.", "DEFAULT", "AB", "ABD", "ABN"}
 )
 _DIGIT = re.compile(r"\d")
 
@@ -32,26 +33,73 @@ def normalize_score(raw: object) -> str:
     return _SPACES.sub(" ", _NOISE.sub(" ", raw)).strip()
 
 
-def count_games(score: str) -> tuple[int, int] | None:
-    """Count games won by the winner and the loser.
+@dataclass(frozen=True, slots=True)
+class SetScore:
+    """Games of one set from the match winner's point of view."""
 
-    A deciding match tie-break such as ``[10-7]`` counts as one game. Returns ``None``
-    when any token cannot be parsed (for example Excel-mangled scores like ``7-Oct``).
+    winner: int
+    loser: int
+    match_tiebreak: bool = False
+
+    @property
+    def finished(self) -> bool:
+        """Whether the set reached a valid conclusion (6-4, 7-5, 7-6, 70-68, [10-8]...)."""
+        high, low = max(self.winner, self.loser), min(self.winner, self.loser)
+        if self.match_tiebreak:
+            return high >= 7 and high - low >= 2
+        return (high >= 6 and high - low >= 2) or (high == 7 and low == 6)
+
+
+def parse_sets(score: str) -> list[SetScore] | None:
+    """Parse the sets of a score, ignoring status tokens such as ``RET``.
+
+    Returns ``None`` when any other token cannot be parsed (for example Excel-mangled
+    scores like ``7-Oct`` or typos like ``6-1-6-2``).
     """
-    winner = loser = 0
+    sets: list[SetScore] = []
     for token in score.split():
         if token.upper() in _STATUS_TOKENS:
             continue
         if match := _SET.match(token):
-            winner += int(match.group(1))
-            loser += int(match.group(2))
+            sets.append(SetScore(int(match.group(1)), int(match.group(2))))
         elif match := _MATCH_TIEBREAK.match(token):
-            first, second = int(match.group(1)), int(match.group(2))
-            winner += first > second
-            loser += second > first
+            sets.append(SetScore(int(match.group(1)), int(match.group(2)), match_tiebreak=True))
         else:
             return None
+    return sets
+
+
+def count_games(score: str) -> tuple[int, int] | None:
+    """Count games won by the winner and the loser.
+
+    A deciding match tie-break such as ``[10-7]`` counts as one game. Returns ``None``
+    when the score cannot be parsed.
+    """
+    sets = parse_sets(score)
+    if sets is None:
+        return None
+    winner = sum(
+        1 if s.match_tiebreak and s.winner > s.loser else 0 if s.match_tiebreak else s.winner
+        for s in sets
+    )
+    loser = sum(
+        1 if s.match_tiebreak and s.loser > s.winner else 0 if s.match_tiebreak else s.loser
+        for s in sets
+    )
     return winner, loser
+
+
+def _looks_unfinished(sets: list[SetScore]) -> bool:
+    """A score without a status marker that cannot be a completed match.
+
+    Either its last set is unfinished (``5-7 5-4``) or the winner did not win more sets
+    than the loser (``2-6 3-0``): such matches ended with a retirement.
+    """
+    if not sets:
+        return True
+    won = sum(s.finished and s.winner > s.loser for s in sets)
+    lost = sum(s.finished and s.loser > s.winner for s in sets)
+    return not sets[-1].finished or won <= lost
 
 
 @lru_cache(maxsize=65536)
@@ -68,11 +116,17 @@ def classify_outcome(score: str) -> Outcome:
         return Outcome.ABANDONED
     if _UNKNOWN.search(upper):
         return Outcome.UNKNOWN
+    sets = parse_sets(score)
     if _RETIRED.search(upper):
+        # Retiring before a single game is played is a walkover in all but name.
+        if sets is not None and all(s.winner == 0 and s.loser == 0 for s in sets):
+            return Outcome.WALKOVER
         return Outcome.RETIRED
-    # Scores with typos ("6-1-6-2", "7-Oct") still describe a played match; their game
-    # counts are simply unavailable. Scores without any digit ("BYE", ">") are not matches.
-    return Outcome.COMPLETED if _DIGIT.search(upper) else Outcome.UNKNOWN
+    if sets is None:
+        # Scores with typos ("6-1-6-2", "7-Oct") still describe a played match whose
+        # game counts are unavailable. Scores without any digit ("BYE") are not matches.
+        return Outcome.COMPLETED if _DIGIT.search(upper) else Outcome.UNKNOWN
+    return Outcome.RETIRED if _looks_unfinished(sets) else Outcome.COMPLETED
 
 
 def parse_scores(scores: pd.Series) -> pd.DataFrame:

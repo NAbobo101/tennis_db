@@ -9,14 +9,15 @@
 [![Dados: CC BY-NC-SA 4.0](https://img.shields.io/badge/dados-CC%20BY--NC--SA%204.0-lightgrey)](data/raw/README.md)
 
 **Probabilidades calibradas e sem vazamento de dados para partidas de simples da ATP e da WTA**,
-treinadas com 57 temporadas (1968-2024, ~1,65 milhão de partidas) dos
+treinadas com 57 temporadas (1968-2024, ~1,66 milhão de partidas) dos
 [dados de tênis de Jeff Sackmann](data/raw/README.md).
 
 > 🇺🇸 [Read in English](README.md)
 
 ```console
 $ uv run tennis predict "Sinner" "Alcaraz" --surface clay --event grand-slam --round F
-  Jannik Sinner vs Carlos Alcaraz - Clay, best of 5
+  Jannik Sinner vs Carlos Alcaraz -
+           Clay, best of 5
 ┏━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
 ┃ Player         ┃ Model ┃ Elo only ┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
@@ -24,7 +25,8 @@ $ uv run tennis predict "Sinner" "Alcaraz" --surface clay --event grand-slam --r
 │ Carlos Alcaraz │ 49.4% │    47.3% │
 └────────────────┴───────┴──────────┘
 Favourite: Jannik Sinner. Main factors for Jannik Sinner: elo_diff (+0.17),
-form_diff (-0.11), elo_blend_logit (+0.10), surface_elo_diff (-0.08), age_diff (-0.07)
+form_diff (-0.11), elo_blend_logit (+0.10), surface_elo_diff (-0.08), age_diff
+(-0.07)
 State as of 2024-12-16 (data cutoff 2024-12-16).
 ```
 
@@ -45,7 +47,7 @@ State as of 2024-12-16 (data cutoff 2024-12-16).
 
   Challengers, Futures e ITF alimentam os ratings.
 - **Calibrado e simétrico.** `p(A vence B) + p(B vence A) = 1` vale exatamente. O erro de
-  calibração esperado é ≤ 0,03.
+  calibração esperado de todos os modelos é ≤ 0,032 (0,031 no modelo ATP servido).
 - **Engenharia de produção:**
   - pacote tipado em `src/` com CLI;
   - configs pydantic, artefatos sem pickle e `mypy --strict`;
@@ -67,19 +69,21 @@ modelo e calibração. Os anos de teste foram usados uma única vez, para esta t
 
 O que os números mostram:
 
-- **Os dois modelos aprendidos superam um Elo bem ajustado.** O ganho é de 0,007-0,013 em
+- **Os dois modelos aprendidos superam um baseline Elo forte.** O ganho é de 0,007-0,013 em
   log-loss, e todo intervalo de 95% do bootstrap exclui o zero.
 - **Na ATP, a regressão logística regularizada é significativamente melhor que o XGBoost.** A
   diferença de log-loss é +0,0034 [+0,0016, +0,0054]. Na WTA os dois empatam. Quando as
-  features já carregam o sinal (as três features de Elo respondem por ~80% do ganho do XGBoost),
-  o gradient boosting não acrescenta nada que um modelo linear não capture. O modelo servido foi
-  escolhido na validação, onde os dois empataram, e o relatório deixa isso claro.
+  features já carregam o sinal (as três features de Elo respondem por ~80% do ganho do XGBoost
+  na ATP e ~84% na WTA), o gradient boosting não acrescenta nada que um modelo linear não
+  capture. O modelo servido é o XGBoost; na validação os dois empataram (log-loss 0,5900 vs
+  0,5906 na ATP, 0,5920 vs 0,5920 na WTA), como mostra a tabela de validação do relatório.
 - **Grand Slams são mais previsíveis.** Em partidas de melhor de cinco sets da ATP, a regressão
   logística chega a 73,3% de acurácia (log-loss 0,505), contra 65,1% em melhor de três.
   Partidas mais longas reduzem a variância.
 - **Os números batem com a literatura.** Modelos Elo publicados chegam a ~64-70% e as odds de
-  casas de apostas a ~69-72%, dependendo da amostra ([Kovalchik 2016][kovalchik]). Acurácia
-  muito acima de 70% em *todas* as partidas do circuito é sinal de vazamento.
+  casas de apostas a ~69-74%, dependendo da amostra: 70% e 72% em [Kovalchik 2016][kovalchik]
+  na ATP de 2014, com números menores para o Elo em estudos posteriores. Acurácia muito acima de
+  70% em *todas* as partidas do circuito é sinal de vazamento.
 
 Os relatórios completos, com recortes por superfície, nível e formato, estão em
 [`reports/atp/metrics.md`](reports/atp/metrics.md) e [`reports/wta/metrics.md`](reports/wta/metrics.md).
@@ -103,14 +107,14 @@ de acurácia, e o número estava errado:
 | Defeito no protótipo | Efeito |
 |---|---|
 | As estatísticas de saque da própria partida entravam na média móvel *antes* de ela virar a feature dessa partida | Vazamento do alvo |
-| `train_test_split` embaralhava 2000-2023 aleatoriamente, depois de espelhar cada partida | Treinava com o futuro, e o espelho de cada partida de teste estava no treino |
-| Os arquivos anuais não estavam ordenados (eventos recentes vêm da final para a primeira rodada) | A "forma recente" incluía partidas posteriores |
+| `train_test_split` embaralhava 2000-2023 aleatoriamente, depois de espelhar cada partida | Treinava com o futuro, e o espelho de uma partida de teste ficava no treino |
+| Os arquivos anuais não estavam ordenados (eventos recentes vêm da final para a primeira rodada) | A "forma recente" incluía, em parte, partidas posteriores |
 | `bp_saved = bpSaved / max(bpSaved, 1)` | A feature valia sempre 0 ou 1; o divisor correto é `bpFaced` |
 | Jogadores identificados pelo nome | Homônimos fundidos ("Martin Landaluce" tem dois ids) |
 
 Com as mesmas sete features calculadas só a partir de partidas anteriores e avaliadas em anos
-posteriores, o protótipo marca **60,4% (ATP) e 62,8% (WTA)**. Isso fica *abaixo* dos 63,8%
-obtidos apenas escolhendo o jogador mais bem ranqueado. A reescrita reconstruiu o pipeline para
+posteriores, o protótipo marca **60,4% (ATP) e 62,8% (WTA)**. Isso fica *abaixo* de apenas
+escolher o jogador mais bem ranqueado nas mesmas partidas (63,2% e 64,6%). A reescrita reconstruiu o pipeline para
 tornar esse erro impossível e depois acrescentou as features que realmente têm sinal. A
 auditoria completa está em [docs/methodology.md](docs/methodology.md#the-prototype-audit).
 
@@ -154,7 +158,7 @@ Os nomes são resolvidos com cautela:
 
 ```mermaid
 flowchart LR
-    A[CSVs do Sackmann<br/>1968-2024, todos os níveis] --> B[Loader<br/>parsing tipado, resultado do placar,<br/>validade das estatísticas, níveis]
+    A[CSVs do Sackmann<br/>1968-2024, todos os níveis] --> B[Loader<br/>parsing tipado, resultado do placar,<br/>validade das estatísticas,<br/>correção de níveis]
     B --> C[Ordem cronológica<br/>semana, torneio, rodada]
     C --> D[FeatureTracker<br/>snapshot ANTES do update]
     D --> E[Dataset<br/>partidas do circuito,<br/>orientação A/B aleatória]
@@ -216,7 +220,8 @@ make check       # ruff, ruff format --check, mypy --strict, pytest com cobertur
 make test-slow   # testes de integração com o conjunto de dados completo
 ```
 
-- A CI roda lint, tipos e testes em todo push e pull request (Python 3.12, 3.13 e 3.14). Ela usa
+- A CI roda lint, tipos e testes em todo push para a `main` e em todo pull request (Python
+  3.12, 3.13 e 3.14). Ela usa
   sparse checkout, então os 835 MB de dados nunca são baixados lá.
 - Os testes rodam em arquivos gerados no formato exato dos originais. Eles incluem round-robins,
   copas por equipes, W.O. com estatísticas falsas, arquivos com a final primeiro e jogadores sem

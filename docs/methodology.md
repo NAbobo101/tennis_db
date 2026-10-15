@@ -39,8 +39,8 @@ in [`data/raw/`](../data/raw/README.md).
 
 **Why load lower tiers.** Most professionals spend years on the Challenger/ITF circuits before
 reaching the tour. Feeding those matches into the ratings gives every player a meaningful Elo on
-debut. In the literature review this was the single largest improvement to Elo: ATP 2023-24
-log-loss went from 0.638 to 0.609.
+debut. With the current pipeline the Elo baseline's 2023-24 log-loss is 0.634 with main-tour
+matches only and 0.604 with all tiers (WTA: 0.621 → 0.599).
 
 **Cleaning** ([`data/loader.py`](../src/tennis_predictor/data/loader.py),
 [`data/scores.py`](../src/tennis_predictor/data/scores.py)):
@@ -130,7 +130,7 @@ tennis Elo described by [Kovalchik (2016)](https://doi.org/10.1515/jqas-2015-005
 - **best-of-five adjustment.** The best-of-three probability `P3` is converted to a per-set
   probability `p` by inverting `P3 = p²(3 − 2p)` in closed form,
   `p = ½ + cos((arccos(1 − 2·P3) − 2π)/3)`, and then `P5 = p³(10 − 15p + 6p²)`.
-  This reproduces Tennis Abstract's example of 81.4% → 86.7%. The same expectation is used in
+  This reproduces Tennis Abstract's example of 81.4% → 86.7% (86.77% here). The same expectation is used in
   the rating update.
 
 The parameters are the published ones. They were not tuned, to avoid spending validation data
@@ -237,7 +237,7 @@ Observations:
 
 - **Learned models beat Elo, modestly but significantly.** The lift comes mostly from the
   experience counts, ranking points, serve/return edge, activity and age. Elo remains the
-  backbone: the three Elo features carry ~80% of XGBoost's split gain.
+  backbone: the three Elo features carry ~80% (ATP) and ~84% (WTA) of XGBoost's split gain.
 - **A linear model is enough.** On ATP the logistic regression is significantly better than
   XGBoost; on WTA they are tied. Its coefficients are interpretable. The largest standardized
   ATP coefficients:
@@ -255,7 +255,7 @@ Observations:
   accuracy, log-loss 0.505. ATP 250/500 events are the hardest (64.7%).
 - **Context.** Kovalchik (2016) reports 70% for FiveThirtyEight Elo and 72% for bookmakers on ATP
   2014. Later studies on 2018-2025 report 64-66% for Elo and 69-74% for bookmakers. Our Elo
-  (65.6% ATP, 66.3% WTA) sits in that range, and the learned models gain about one point.
+  (65.6% ATP, 66.3% WTA) sits in that range, and the learned models gain 0.3-1.4 points of accuracy.
 
 Reliability diagrams and feature importances for both tours are in [`reports/`](../reports).
 
@@ -282,7 +282,8 @@ of the event, round, date) and calls the same `snapshot` used in training. It re
 - warnings for players inactive for over a year.
 
 A test checks that serving a past final from the state just before it reproduces that match's
-training row and probability.
+training row, apart from the in-event features (games already played, qualifier and wild-card
+flags), and that the served probability equals the calibrated symmetric model output.
 
 ## The prototype audit
 
@@ -299,9 +300,15 @@ A careful audit found that they measured leakage rather than skill:
 | 5 | Players keyed by display name | Namesakes merged, renamed players split |
 | 6 | No baseline, accuracy only, 2024 data ignored, retraining on every launch (~1.5 min) | No way to tell whether the model was any good |
 
-With features computed from earlier matches only, sorted chronologically and evaluated on later
-years (train ≤ 2018, test 2019-2023), the **same seven features** score **60.4% (ATP) and
-62.8% (WTA)**. That is below the 63.8% obtained by always picking the better-ranked player.
+The same seven features were then recomputed honestly:
+- completed matches with statistics only (no retirements or walkovers);
+- sorted chronologically;
+- each player's 30-match average taken *before* adding the match;
+- one randomly oriented row per match;
+- the prototype's XGBoost settings, trained on 2000-2018 and tested on 2019-2023.
+
+They score **60.4% (ATP) and 62.8% (WTA)**. That is below always picking the better-ranked
+player on the same test matches (63.2% and 64.6%).
 The rewrite keeps the good ideas: per-serve-point rates, player differences, rolling form, fuzzy
 name lookup and separate ATP/WTA models. It rebuilds everything else around the guarantees in §3.
 

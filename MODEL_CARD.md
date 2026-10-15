@@ -40,7 +40,8 @@ Format inspired by [Mitchell et al. (2019), *Model Cards for Model Reporting*](h
 | Validation (early stopping, selection, calibration) | 5,099 (2021-2022) | 4,675 (2021-2022) |
 | Test (used once) | 5,355 (2023-2024) | 4,916 (2023-2024) |
 
-Rows are completed matches. Retirements and walkovers update the ratings but are never targets.
+Rows are completed matches. Retirements update the ratings (with half the K-factor) but are never
+targets; walkovers, defaults and abandoned matches do not affect the ratings.
 
 ## Metrics (test set)
 
@@ -50,7 +51,8 @@ Rows are completed matches. Retirements and walkovers update the ratings but are
 | Logistic regression | 0.5915 | 0.2044 | 66.6% | 0.026 | 0.5918 | 0.2040 | 67.7% | 0.014 |
 | **XGBoost (served)** | 0.5949 | 0.2058 | 65.8% | 0.031 | 0.5916 | 0.2040 | 67.4% | 0.011 |
 
-- The served model was chosen on validation, where XGBoost and logistic regression were tied.
+- XGBoost is the served model; on validation it was tied with the logistic regression (log-loss
+  0.5900 vs 0.5906 ATP, 0.5920 vs 0.5920 WTA).
 - On the ATP test years the logistic regression is significantly better: log-loss +0.0034
   [+0.0016, +0.0054] for XGBoost.
 - Full breakdowns are in [`reports/`](reports).

@@ -9,13 +9,14 @@
 [![Data: CC BY-NC-SA 4.0](https://img.shields.io/badge/data-CC%20BY--NC--SA%204.0-lightgrey)](data/raw/README.md)
 
 **Leakage-free, calibrated pre-match win probabilities for ATP and WTA singles**, trained on
-57 seasons (1968-2024, ~1.65 million matches) of [Jeff Sackmann's tennis data](data/raw/README.md).
+57 seasons (1968-2024, ~1.66 million matches) of [Jeff Sackmann's tennis data](data/raw/README.md).
 
 > 🇧🇷 [Leia em português](README.pt-BR.md)
 
 ```console
 $ uv run tennis predict "Sinner" "Alcaraz" --surface clay --event grand-slam --round F
-  Jannik Sinner vs Carlos Alcaraz - Clay, best of 5
+  Jannik Sinner vs Carlos Alcaraz -
+           Clay, best of 5
 ┏━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━┓
 ┃ Player         ┃ Model ┃ Elo only ┃
 ┡━━━━━━━━━━━━━━━━╇━━━━━━━╇━━━━━━━━━━┩
@@ -23,7 +24,8 @@ $ uv run tennis predict "Sinner" "Alcaraz" --surface clay --event grand-slam --r
 │ Carlos Alcaraz │ 49.4% │    47.3% │
 └────────────────┴───────┴──────────┘
 Favourite: Jannik Sinner. Main factors for Jannik Sinner: elo_diff (+0.17),
-form_diff (-0.11), elo_blend_logit (+0.10), surface_elo_diff (-0.08), age_diff (-0.07)
+form_diff (-0.11), elo_blend_logit (+0.10), surface_elo_diff (-0.08), age_diff
+(-0.07)
 State as of 2024-12-16 (data cutoff 2024-12-16).
 ```
 
@@ -43,7 +45,7 @@ State as of 2024-12-16 (data cutoff 2024-12-16).
 
   Challengers, Futures and ITF events feed the ratings.
 - **Calibrated and symmetric.** `p(A beats B) + p(B beats A) = 1` holds exactly. The expected
-  calibration error is ≤ 0.03.
+  calibration error of every model is ≤ 0.032 (0.031 for the served ATP model).
 - **Production-grade engineering:**
   - a typed `src/` package with a CLI;
   - pydantic configs, pickle-free artifacts and `mypy --strict`;
@@ -65,18 +67,20 @@ and calibration. The test years were used once, for this table.
 
 What the numbers say:
 
-- **Both learned models beat a well-tuned Elo.** The gains are 0.007-0.013 in log-loss, and
+- **Both learned models beat a strong Elo baseline.** The gains are 0.007-0.013 in log-loss, and
   every 95% bootstrap interval excludes zero.
 - **On ATP, the regularized logistic regression is significantly better than XGBoost.** The
   log-loss difference is +0.0034 [+0.0016, +0.0054]. On WTA the two are tied. Once the features
-  carry the signal (the three Elo features account for ~80% of XGBoost's gain), gradient
-  boosting adds nothing a linear model can't capture. The served model was chosen on validation, where the
-  two were tied, and the report says so.
+  carry the signal (the three Elo features account for ~80% of XGBoost's gain on ATP and ~84%
+  on WTA), gradient boosting adds nothing a linear model can't capture. XGBoost is the served
+  model; on validation the two were tied (log-loss 0.5900 vs 0.5906 on ATP, 0.5920 vs 0.5920 on
+  WTA), as the report's validation table shows.
 - **Grand Slams are more predictable.** In ATP best-of-five matches the logistic model reaches
   73.3% accuracy (log-loss 0.505), against 65.1% in best-of-three. Longer matches reduce variance.
 - **These numbers are in line with the literature.** Published Elo models reach ~64-70% and
-  bookmaker odds ~69-72%, depending on the sample ([Kovalchik 2016][kovalchik]). Accuracy well
-  above 70% on *all* tour-level matches is a red flag for leakage.
+  bookmaker odds ~69-74%, depending on the sample: 70% and 72% in [Kovalchik 2016][kovalchik] on
+  ATP 2014, with lower Elo figures in later studies. Accuracy well above 70% on *all* tour-level
+  matches is a red flag for leakage.
 
 Full reports, with breakdowns by surface, level and format, are in
 [`reports/atp/metrics.md`](reports/atp/metrics.md) and [`reports/wta/metrics.md`](reports/wta/metrics.md).
@@ -106,8 +110,8 @@ accuracy, and the number was wrong:
 | Players were keyed by name | Namesakes were merged ("Martin Landaluce" has two ids) |
 
 With the same seven features computed from earlier matches only and evaluated on later years,
-the prototype scores **60.4% (ATP) and 62.8% (WTA)**. That is *below* the 63.8% of simply
-picking the better-ranked player. The rewrite rebuilt the pipeline around making that
+the prototype scores **60.4% (ATP) and 62.8% (WTA)**. That is *below* simply picking the
+better-ranked player on the same matches (63.2% and 64.6%). The rewrite rebuilt the pipeline around making that
 impossible to get wrong, then added the features that actually carry signal. The full audit is
 in [docs/methodology.md](docs/methodology.md#the-prototype-audit).
 
@@ -210,7 +214,8 @@ make check       # ruff, ruff format --check, mypy --strict, pytest with coverag
 make test-slow   # integration tests on the full vendored dataset
 ```
 
-- CI runs lint, types and tests on every push and pull request (Python 3.12, 3.13 and 3.14).
+- CI runs lint, types and tests on every push to `main` and every pull request (Python 3.12,
+  3.13 and 3.14).
   It uses a sparse checkout, so the 835 MB of data is never downloaded there.
 - The test suite runs on generated files in the exact upstream format. They include round
   robins, team cups, walkovers with fake statistics, final-first files and unranked players.

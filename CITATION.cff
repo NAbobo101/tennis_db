@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "tennis-predictor: leakage-free pre-match tennis winner prediction"
+type: software
+authors:
+  - alias: NAbobo101
+version: 1.0.0
+date-released: "2026-10-15"
+license: MIT
+repository-code: "https://github.com/NAbobo101/tennis_db"
+keywords:
+  - tennis
+  - sports analytics
+  - machine learning
+  - elo rating
+  - xgboost
+references:
+  - type: data
+    title: "Tennis databases, files, and algorithms (tennis_atp, tennis_wta)"
+    authors:
+      - family-names: Sackmann
+        given-names: Jeff
+    url: "https://github.com/JeffSackmann"
+    license: CC-BY-NC-SA-4.0
+  - type: article
+    title: "Searching for the GOAT of tennis win prediction"
+    authors:
+      - family-names: Kovalchik
+        given-names: Stephanie
+    journal: "Journal of Quantitative Analysis in Sports"
+    volume: 12
+    issue: 3
+    start: 127
+    end: 138
+    year: 2016
+    doi: "10.1515/jqas-2015-0059"

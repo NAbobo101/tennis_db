@@ -1,0 +1,146 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "tennis-predictor"
+version = "1.0.0"
+description = "Leakage-free, calibrated pre-match win probabilities for ATP and WTA tennis matches."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "NAbobo101" }]
+keywords = ["tennis", "sports-analytics", "machine-learning", "xgboost", "elo", "forecasting"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
+]
+dependencies = [
+    # xgboost-cpu ships the same `xgboost` module without the ~300 MB CUDA/NCCL wheels.
+    "xgboost-cpu>=3.4; sys_platform != 'darwin'",
+    "xgboost>=3.4; sys_platform == 'darwin'",
+    "scikit-learn>=1.8",
+    "scipy>=1.14",
+    "pandas>=3.0",
+    "numpy>=2.2",
+    "pyarrow>=20",
+    "pydantic>=2.11",
+    "pyyaml>=6.0.2",
+    "typer>=0.27",
+    "rich>=14",
+    "rapidfuzz>=3.14",
+    "matplotlib>=3.10",
+]
+
+[project.scripts]
+tennis = "tennis_predictor.cli:app"
+
+[project.urls]
+Repository = "https://github.com/NAbobo101/tennis_db"
+Issues = "https://github.com/NAbobo101/tennis_db/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-cov>=7.0",
+    "ruff>=0.17",
+    "mypy>=2.0",
+    "pre-commit>=4.3",
+    "pandas-stubs>=3.0",
+    "types-pyyaml>=6.0.12",
+]
+
+[tool.uv]
+required-version = ">=0.11"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tennis_predictor"]
+
+[tool.hatch.build.targets.sdist]
+# The vendored data is ~835 MB: ship only what is needed to build and test.
+only-include = ["src", "tests", "configs", "README.md", "LICENSE", "pyproject.toml"]
+
+# --------------------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W", "F", "I", "B", "UP", "SIM", "N", "C4", "PT", "RET", "PTH",
+    "NPY", "PERF", "RUF", "D",
+]
+ignore = [
+    "D100",  # module docstrings are optional
+    "D104",  # package docstrings are optional
+    "D105",  # magic methods
+    "D107",  # __init__ is documented on the class
+    "N803",  # `X` is the conventional name for a feature matrix
+    "N806",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.isort]
+known-first-party = ["tennis_predictor"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D"]
+
+[tool.ruff.format]
+docstring-code-format = true
+
+# --------------------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+files = ["src", "tests"]
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["sklearn.*", "scipy.*"]
+ignore_missing_imports = true
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+
+# --------------------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+minversion = "9.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "--import-mode=importlib",
+]
+markers = ["slow: needs the full vendored dataset in data/raw (deselect with -m 'not slow')"]
+filterwarnings = ["error"]
+
+[tool.coverage.run]
+branch = true
+source = ["tennis_predictor"]
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = true
+fail_under = 85
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]

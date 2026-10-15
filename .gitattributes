@@ -1,0 +1,11 @@
+# Normalize text files to LF in the repository.
+* text=auto eol=lf
+
+# Vendored third-party data: never touch line endings, keep it out of diffs and
+# out of GitHub's language statistics.
+data/raw/** -text -diff linguist-vendored
+*.xlsm binary
+
+# Generated artifacts.
+uv.lock linguist-generated
+reports/** linguist-generated

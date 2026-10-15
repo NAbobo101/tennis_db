@@ -1,0 +1,25 @@
+# WTA women's singles. Run with: uv run tennis train --config configs/wta.yaml
+tour: wta
+seed: 42
+
+# Training and evaluation rows: tour-level main draws only (G = Grand Slam,
+# PM / P / I = Premier Mandatory / Premier / International and their 1000/500/250
+# successors, F = Tour Finals, O = Olympics, W = other WTA events).
+levels: [G, PM, P, I, F, O, W]
+
+data:
+  # ITF and tour-level qualifying matches only feed the rating history.
+  history_tiers: [main, qual_itf]
+
+split:
+  # Serve statistics are sparse before ~2009 and level codes changed that year.
+  train_start: 2009
+  train_end: 2020
+  val_years: [2021, 2022]
+  test_years: [2023, 2024]
+
+xgboost:
+  grid:
+    - {max_depth: 3, min_child_weight: 10}
+    - {max_depth: 4, min_child_weight: 20}
+    - {max_depth: 5, min_child_weight: 50}

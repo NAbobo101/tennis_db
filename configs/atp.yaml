@@ -1,0 +1,23 @@
+# ATP men's singles. Run with: uv run tennis train --config configs/atp.yaml
+tour: atp
+seed: 42
+
+# Training and evaluation rows: tour-level main draws only
+# (G = Grand Slam, M = Masters 1000, A = ATP 250/500 and team cups, F = Tour Finals, O = Olympics).
+levels: [G, M, A, F, O]
+
+data:
+  # Challenger, tour-level qualifying and Futures matches only feed the rating history.
+  history_tiers: [main, qual_chall, futures]
+
+split:
+  train_start: 1995
+  train_end: 2020
+  val_years: [2021, 2022]
+  test_years: [2023, 2024]
+
+xgboost:
+  grid:
+    - {max_depth: 3, min_child_weight: 10}
+    - {max_depth: 4, min_child_weight: 20}
+    - {max_depth: 5, min_child_weight: 50}

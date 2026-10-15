@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "tennis-predictor"
 version = "1.0.0"
-description = "Leakage-free pre-match ATP/WTA winner prediction with Elo ratings and calibrated XGBoost."
+description = "Leakage-free, calibrated pre-match win probabilities for ATP and WTA tennis matches."
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"

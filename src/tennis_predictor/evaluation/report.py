@@ -9,13 +9,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Final, Literal
 
-import matplotlib as mpl
-
-mpl.use("Agg")
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.axes import Axes
+from matplotlib.figure import Figure
+from matplotlib.ticker import PercentFormatter
 
 from tennis_predictor.evaluation.metrics import (
     BootstrapResult,
@@ -32,6 +30,8 @@ MODELS: Final = {
     "p_xgboost": "XGBoost (calibrated)",
 }
 BREAKDOWNS: Final = {"surface": "Surface", "tourney_level": "Level", "best_of": "Best of"}
+#: Paired comparisons reported with bootstrap intervals: (model, reference).
+COMPARISONS: Final = (("p_logistic", "p_elo"), ("p_xgboost", "p_elo"), ("p_xgboost", "p_logistic"))
 Theme = Literal["light", "dark"]
 
 # Reference data-viz palette: categorical slots 1-3 and chart chrome, per theme.
@@ -83,7 +83,7 @@ class Report:
             "breakdowns": {
                 name: frame.to_dict(orient="records") for name, frame in self.breakdowns.items()
             },
-            "bootstrap_vs_elo": {
+            "bootstrap": {
                 name: [result.as_dict() for result in results]
                 for name, results in self.bootstrap.items()
             },
@@ -125,15 +125,15 @@ def build_report(
             label: compute_metrics(part["y"], part[column]) for column, label in MODELS.items()
         }
     test = predictions.loc[predictions["split"] == "test"]
-    focus = {"p_elo": "Elo", "p_xgboost": "XGBoost"}
+    focus = {"p_elo": "Elo", "p_logistic": "Logistic", "p_xgboost": "XGBoost"}
     breakdowns = {
         name: metrics_by_group(test, column, focus) for column, name in BREAKDOWNS.items()
     }
     bootstrap = {
-        MODELS[column]: paired_bootstrap(
-            test["y"], test[column], test["p_elo"], n_resamples=n_resamples
+        f"{MODELS[model]} vs {MODELS[reference]}": paired_bootstrap(
+            test["y"], test[model], test[reference], n_resamples=n_resamples
         )
-        for column in ("p_logistic", "p_xgboost")
+        for model, reference in COMPARISONS
     }
     return Report(
         tour=tour,
@@ -212,11 +212,12 @@ def render_markdown(report: Report) -> str:
         "",
         *_metrics_table(report.overall["val"]),
         "",
-        "## Difference against the Elo baseline (test set, paired bootstrap 95% CI)",
+        "## Paired comparisons (test set, bootstrap 95% CI)",
         "",
-        "Negative values mean the model is better than Elo.",
+        "Mean per-match difference, first model minus second: negative values favour the "
+        "first model. An interval containing 0 means no significant difference.",
         "",
-        "| Model | Metric | Difference | 95% CI |",
+        "| Comparison | Metric | Difference | 95% CI |",
         "|---|---|---:|---|",
     ]
     for model, results in report.bootstrap.items():
@@ -255,7 +256,8 @@ def plot_reliability(
     """Reliability diagram of the Elo, logistic and XGBoost probabilities on the test set."""
     palette = _THEMES[theme]
     test = predictions.loc[predictions["split"] == "test"]
-    fig, ax = plt.subplots(figsize=(6.4, 5.2), dpi=150, facecolor=palette["surface"])
+    fig = Figure(figsize=(6.4, 5.2), dpi=150, facecolor=palette["surface"])
+    ax = fig.add_subplot()
     _style_axes(ax, palette)
     ax.plot(
         [0, 1],
@@ -303,7 +305,6 @@ def plot_reliability(
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, facecolor=palette["surface"], metadata={"Software": None})
-    plt.close(fig)
 
 
 def plot_feature_importance(
@@ -315,23 +316,21 @@ def plot_feature_importance(
     items = sorted(importance.items(), key=lambda item: item[1], reverse=True)[:top][::-1]
     names = [name for name, _ in items]
     shares = [value / total for _, value in items]
-    fig, ax = plt.subplots(
-        figsize=(6.4, 0.32 * len(items) + 1.2), dpi=150, facecolor=palette["surface"]
-    )
+    fig = Figure(figsize=(6.4, 0.32 * len(items) + 1.2), dpi=150, facecolor=palette["surface"])
+    ax = fig.add_subplot()
     _style_axes(ax, palette)
     ax.grid(True, axis="x", color=palette["grid"], linewidth=0.8)
     ax.grid(False, axis="y")
     ax.barh(names, shares, height=0.6, color=palette["series"][0])
     for y, share in enumerate(shares):
         ax.text(share, y, f" {share:.0%}", va="center", fontsize=8, color=palette["ink_secondary"])
-    ax.xaxis.set_major_formatter(mpl.ticker.PercentFormatter(1.0, decimals=0))
+    ax.xaxis.set_major_formatter(PercentFormatter(1.0, decimals=0))
     ax.tick_params(axis="y", length=0)
     ax.set_xlabel("Share of total gain", color=palette["ink_secondary"])
     ax.set_title("XGBoost feature importance", color=palette["ink"], loc="left", fontsize=12)
     fig.tight_layout()
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, facecolor=palette["surface"], metadata={"Software": None})
-    plt.close(fig)
 
 
 def write_report(report: Report, predictions: pd.DataFrame, out_dir: Path) -> list[Path]:

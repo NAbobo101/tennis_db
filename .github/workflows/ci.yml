@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.11.32"
+
+jobs:
+  lint:
+    name: Lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The vendored data (~835 MB) is not needed: tests use synthetic files.
+          sparse-checkout: |
+            src
+            tests
+            configs
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: "3.13"
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run ruff check --output-format=github src tests
+      - run: uv run ruff format --check src tests
+      - run: uv run mypy
+
+  test:
+    name: Tests (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: |
+            src
+            tests
+            configs
+      - uses: astral-sh/setup-uv@v10.3.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - run: uv sync --locked
+      - run: uv run pytest -m "not slow" --cov=tennis_predictor --cov-report=term-missing --cov-report=xml
+      - uses: actions/upload-artifact@v7
+        if: matrix.python-version == '3.13'
+        with:
+          name: coverage
+          path: coverage.xml
